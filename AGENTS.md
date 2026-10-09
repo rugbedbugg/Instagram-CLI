@@ -23,6 +23,7 @@ This documentation provides context for AI coding tools like VSCode, Cursor, Gem
 - Maintain `ClientContext` boundaries, inject dependencies into hooks (`useStories`, etc.) for testability, and call `InstagramClient.shutdown()` when tearing down realtime sessions.
 - Keep ESM imports with explicit `.js` extensions; mirror existing logging setup via `initializeLogger()` and `createContextualLogger`.
 - API work lives in `source/client.ts` plus helpers like `utils/message-parser.ts`; extend these surfaces rather than scattering raw API calls.
+- Client identity lives in `source/compatibility/`; use its factory, device generator, and realtime options. Read `docs/compatibility-profile.md` before changing fingerprint or session precedence. Do not restore version constants in dependency patches.
 - Place stateless Ink pieces in `ui/components`, orchestration in `ui/views`, and derived state in `ui/hooks`; reuse existing visual patterns (gradients, status bars) for consistency.
 - When working with existing components and systems, first check their design description in `docs/`
 - Use linter exceptions (`eslint-disable-next-line`) sparingly; prefer fixing the underlying issue. If a disable is unavoidable, scope it to the narrowest region (single line when possible) and add a brief justification.
@@ -34,7 +35,7 @@ This documentation provides context for AI coding tools like VSCode, Cursor, Gem
 - When pre-commit hooks are unavailable, run `npm run format`, `npm run lint-check`, and `npm test` locally before submitting work.
 - Prefer mock runs (`npm run start:mock -- --chat|--feed|--story`) during UI work; update `source/mocks/mock-data.ts` if expectations shift.
 - **TUI testing quirks:** Ink renders to a string buffer, not a real terminal. Use `render()` from `ink-testing-library` and assert against `lastFrame()` output. For visual elements like unread indicators or selection highlights, check for the expected Unicode/ANSI characters in the frame string (e.g., `t.truthy(output?.includes('●'))`).
-- **What to test:** Component rendering with mock data, keyboard input handling (`stdin.write()`), edge cases like empty states and Unicode text. Do not test Instagram API calls directly — mock the client.
+- **What to test:** Component rendering with mock data, keyboard input handling (`stdin.write()`), edge cases like empty states and Unicode text. Mock the client for UI tests. The compatibility harness may exercise real request/payload construction only with transport interception and network-denial guards; never send Instagram requests or open MQTT connections in tests.
 
 ## External Documentation
 

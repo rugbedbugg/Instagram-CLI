@@ -6,7 +6,7 @@ Live Instagram authentication is currently degraded and has not been revalidated
 
 ## Setup
 
-Use Node.js >=22 through `mise`; CI validates Node 22 and 24. The existing version policy is conservative. This rebrand changes no runtime requirements, dependency versions, or application version.
+Use Node.js >=22 through `mise`; CI validates Node 22 and 24. The existing version policy is conservative. Compatibility-profile extraction changes no runtime requirements, resolved dependency versions, or application version.
 
 ```bash
 git clone https://github.com/rugbedbugg/Instagram-CLI.git
@@ -67,6 +67,13 @@ AVA automatically creates temporary state via `tests/_setup-isolated-storage.ts`
 
 `npm run format` applies formatting; `npm run lint-check` checks Prettier and XO. `npm test` repeats those checks and runs AVA. Identity tests build an isolated package layout and exercise both executable names without an existing `dist/` build.
 
+The [compatibility harness](docs/compatibility-profile.md) exercises real REST request construction and MQTT payload builders with transport interception and network-denial guards. It never connects to Instagram. Its focused tests have a separate TypeScript project:
+
+```bash
+mise exec node@22 -- npx --no-install tsc -p tests/compatibility/tsconfig.json --noEmit
+mise exec node@22 -- npx --no-install ava 'tests/compatibility/*.test.ts'
+```
+
 For Ink tests, use `ink-testing-library`, assert on `lastFrame()`, and wait for rendered state rather than relying on fixed delays. Add coverage for keyboard input, empty states, Unicode, and any changed local-file behavior.
 
 ## Source layout
@@ -87,6 +94,7 @@ Keep ESM imports with explicit `.js` extensions. Use `initializeLogger()` and co
 
 - [Maintenance and releases](docs/maintenance.md)
 - [Local-file safety](docs/local-file-safety.md)
+- [Compatibility profile ownership, offline harness, and session boundaries](docs/compatibility-profile.md)
 - [Logging](docs/logging.md)
 - [Login implementation](docs/login.md) and [API debugging](docs/api-debugging.md), which describe implementation rather than current live compatibility
 
