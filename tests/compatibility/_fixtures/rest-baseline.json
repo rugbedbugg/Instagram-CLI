@@ -1,0 +1,143 @@
+{
+	"headers": {
+		"user-agent": "Instagram 416.0.0.47.66 Android (25/7.1.1; 440dpi; 1080x1920; Xiaomi; MI MAX 2; oxygen; qcom; en_US; 382206157)",
+		"x-ig-app-id": "567067343352427",
+		"x-bloks-version-id": "388ece79ebc0e70e87873505ed1b0ff335ae2868a978cc951b6721c41d46a30a",
+		"x-ig-capabilities": "3brTv10=",
+		"content-type": "application/x-www-form-urlencoded",
+		"accept-language": "en-US",
+		"x-ig-app-locale": "en_US",
+		"x-ig-device-locale": "en_US",
+		"x-bloks-is-layout-rtl": "false",
+		"x-ig-connection-type": "WIFI",
+		"x-fb-http-engine": "Liger"
+	},
+	"routes": {
+		"login": {
+			"path": "/api/v1/accounts/login/",
+			"method": "POST",
+			"formKeys": ["ig_sig_key_version", "signed_body"],
+			"payloadKeys": [
+				"_csrftoken",
+				"adid",
+				"country_codes",
+				"device_id",
+				"enc_password",
+				"google_tokens",
+				"guid",
+				"jazoest",
+				"login_attempt_count",
+				"phone_id",
+				"username"
+			]
+		},
+		"launcher": {
+			"path": "/api/v1/launcher/sync/",
+			"method": "POST",
+			"formKeys": ["ig_sig_key_version", "signed_body"],
+			"payloadKeys": ["configs", "id"],
+			"configsSha256": "2f585a0566c697f3effe077a6f31d052f6209a5b43b5ea4fd43214e39217a149"
+		},
+		"launcherAuthenticated": {
+			"path": "/api/v1/launcher/sync/",
+			"method": "POST",
+			"formKeys": ["ig_sig_key_version", "signed_body"],
+			"payloadKeys": ["_csrftoken", "_uid", "_uuid", "configs", "id"],
+			"configsSha256": "4b71336e3cd6bcef24328cff743d645eff451f45b1a276dadc73e4bc06841c40"
+		},
+		"loginExperiments": {
+			"path": "/api/v1/qe/sync/",
+			"method": "POST",
+			"formKeys": ["ig_sig_key_version", "signed_body"],
+			"payloadKeys": ["_csrftoken", "_uid", "_uuid", "experiments", "id"]
+		},
+		"experiments": {
+			"path": "/api/v1/qe/sync/",
+			"method": "POST",
+			"formKeys": ["ig_sig_key_version", "signed_body"],
+			"payloadKeys": ["_csrftoken", "_uid", "_uuid", "experiments", "id"]
+		},
+		"reels": {
+			"path": "/api/v1/feed/reels_tray/",
+			"method": "POST",
+			"formKeys": [
+				"_csrftoken",
+				"_uuid",
+				"reason",
+				"supported_capabilities_new[0][name]",
+				"supported_capabilities_new[0][value]",
+				"supported_capabilities_new[1][name]",
+				"supported_capabilities_new[1][value]",
+				"supported_capabilities_new[2][name]",
+				"supported_capabilities_new[2][value]",
+				"supported_capabilities_new[3][name]",
+				"supported_capabilities_new[3][value]",
+				"supported_capabilities_new[4][name]",
+				"supported_capabilities_new[4][value]",
+				"supported_capabilities_new[5][name]",
+				"supported_capabilities_new[5][value]"
+			],
+			"payloadKeys": [
+				"_csrftoken",
+				"_uuid",
+				"reason",
+				"supported_capabilities_new[0][name]",
+				"supported_capabilities_new[0][value]",
+				"supported_capabilities_new[1][name]",
+				"supported_capabilities_new[1][value]",
+				"supported_capabilities_new[2][name]",
+				"supported_capabilities_new[2][value]",
+				"supported_capabilities_new[3][name]",
+				"supported_capabilities_new[3][value]",
+				"supported_capabilities_new[4][name]",
+				"supported_capabilities_new[4][value]",
+				"supported_capabilities_new[5][name]",
+				"supported_capabilities_new[5][value]"
+			]
+		},
+		"timeline": {
+			"path": "/api/v1/feed/timeline/",
+			"method": "POST",
+			"formKeys": [
+				"_csrftoken",
+				"_uuid",
+				"battery_level",
+				"client_session_id",
+				"device_id",
+				"feed_view_info",
+				"is_async_ads_double_request",
+				"is_async_ads_in_headload_enabled",
+				"is_async_ads_rti",
+				"is_charging",
+				"is_prefetch",
+				"is_pull_to_refresh",
+				"phone_id",
+				"reason",
+				"rti_delivery_backend",
+				"seen_posts",
+				"timezone_offset",
+				"will_sound_on"
+			],
+			"payloadKeys": [
+				"_csrftoken",
+				"_uuid",
+				"battery_level",
+				"client_session_id",
+				"device_id",
+				"feed_view_info",
+				"is_async_ads_double_request",
+				"is_async_ads_in_headload_enabled",
+				"is_async_ads_rti",
+				"is_charging",
+				"is_prefetch",
+				"is_pull_to_refresh",
+				"phone_id",
+				"reason",
+				"rti_delivery_backend",
+				"seen_posts",
+				"timezone_offset",
+				"will_sound_on"
+			]
+		}
+	}
+}
