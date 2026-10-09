@@ -113,7 +113,7 @@ for (const alias of ['insta-cli', 'instagram-cli']) {
 				t.true(
 					stdout.includes(`Instagram-CLI (insta-cli): v${packageJson.version}`),
 				);
-				t.true(stdout.includes('Instagram app version:'));
+				t.true(stdout.includes('Instagram app version: 416.0.0.47.66'));
 			}
 		});
 	}

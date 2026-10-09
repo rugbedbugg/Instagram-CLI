@@ -53,6 +53,7 @@
 	],
 	"dependencies": {
 		"@inkjs/ui": "^2.0.0",
+		"chance": "1.1.13",
 		"debug": "^4.4.3",
 		"emoji-name-map": "^2.0.3",
 		"file-type": "^22.0.1",
@@ -79,6 +80,7 @@
 	},
 	"devDependencies": {
 		"@sindresorhus/tsconfig": "^8.1.0",
+		"@types/chance": "1.1.7",
 		"@types/debug": "^4.1.12",
 		"@types/js-yaml": "^4.0.9",
 		"@types/node-notifier": "^8.0.5",

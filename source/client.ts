@@ -25,8 +25,13 @@ import {
 	GraphQLSubscriptions,
 	SkywalkerSubscriptions,
 	type RealtimeClient,
-	IgApiClientExt,
+	type IgApiClientExt,
 } from 'instagram_mqtt';
+import {
+	createInstagramApiClient,
+	generateCompatibilityDevice,
+	realtimeCompatibilityOptions,
+} from './compatibility/client.js';
 import {SessionManager} from './session.js';
 import {ConfigManager} from './config.js';
 import type {
@@ -193,7 +198,7 @@ export class InstagramClient extends EventEmitter {
 
 	constructor(username?: string) {
 		super();
-		this.ig = new IgApiClientExt();
+		this.ig = createInstagramApiClient();
 		this.configManager = ConfigManager.getInstance();
 
 		if (username) {
@@ -230,7 +235,7 @@ export class InstagramClient extends EventEmitter {
 			this.username = username;
 			this.sessionManager = new SessionManager(username);
 
-			this.ig.state.generateDevice(username);
+			generateCompatibilityDevice(this.ig, username);
 
 			this.ig.request.end$.subscribe(async () => {
 				await this.saveSessionState();
@@ -359,7 +364,7 @@ export class InstagramClient extends EventEmitter {
 				return {success: false, error: 'No username set for session login'};
 			}
 
-			this.ig.state.generateDevice(this.username);
+			generateCompatibilityDevice(this.ig, this.username);
 
 			this.ig.request.end$.subscribe(async () => {
 				await this.saveSessionState();
@@ -1187,6 +1192,7 @@ export class InstagramClient extends EventEmitter {
 		});
 
 		await this.realtime.connect({
+			...realtimeCompatibilityOptions(),
 			graphQlSubs: [
 				GraphQLSubscriptions.getAppPresenceSubscription(),
 				GraphQLSubscriptions.getZeroProvisionSubscription(

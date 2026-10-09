@@ -3,7 +3,7 @@ import {fileURLToPath} from 'node:url';
 import React, {useState, useEffect} from 'react';
 import {Text, Box} from 'ink';
 import {readPackageUp} from 'read-package-up';
-import {APP_VERSION} from 'instagram-private-api/dist/core/constants.js';
+import {currentCompatibilityProfile} from '../compatibility/profile.js';
 
 export const description = 'Show version information';
 
@@ -33,7 +33,7 @@ export default function Version() {
 				packageName: cliPkg?.packageJson.name ?? 'unknown',
 				cliVersion: cliPkg?.packageJson.version ?? 'unknown',
 				apiVersion: apiPkg?.packageJson.version ?? 'unknown',
-				appVersion: APP_VERSION,
+				appVersion: currentCompatibilityProfile.appVersion,
 			});
 		})();
 	}, []);
