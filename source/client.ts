@@ -31,6 +31,8 @@ import {
 	createInstagramApiClient,
 	generateCompatibilityDevice,
 	realtimeCompatibilityOptions,
+	restoreAccountIdentity,
+	restoreCompatibilitySession,
 } from './compatibility/client.js';
 import {SessionManager} from './session.js';
 import {ConfigManager} from './config.js';
@@ -235,7 +237,13 @@ export class InstagramClient extends EventEmitter {
 			this.username = username;
 			this.sessionManager = new SessionManager(username);
 
+			// New accounts get the profile's device template; an account with a
+			// saved session keeps its device identity for the fresh login.
 			generateCompatibilityDevice(this.ig, username);
+			const savedSession = await this.sessionManager.loadSession();
+			if (savedSession && restoreAccountIdentity(this.ig, savedSession)) {
+				this.logger.info('Reusing saved device identity for credential login');
+			}
 
 			this.ig.request.end$.subscribe(async () => {
 				await this.saveSessionState();
@@ -370,7 +378,12 @@ export class InstagramClient extends EventEmitter {
 				await this.saveSessionState();
 			});
 
-			await this.ig.state.deserialize(sessionData);
+			const replaced = await restoreCompatibilitySession(this.ig, sessionData);
+			if (replaced.length > 0) {
+				this.logger.info(
+					`Compatibility profile replaced saved application fields: ${replaced.join(', ')}`,
+				);
+			}
 
 			await this.postLoginSetup(this.username, {
 				initializeRealtime: sessionOptions.initializeRealtime,

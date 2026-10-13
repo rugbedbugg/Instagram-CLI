@@ -70,6 +70,64 @@ export function generateCompatibilityDevice(
 	ig.state.adid = chance.guid();
 }
 
+/** Persisted per-account identity that an application profile never replaces. */
+export const accountIdentityFields = [
+	'deviceString',
+	'build',
+	'deviceId',
+	'uuid',
+	'phoneId',
+	'adid',
+] as const;
+
+/**
+ * Restore a saved account's device identity, all or nothing, without its
+ * authentication state. Used before a fresh credential login.
+ */
+export function restoreAccountIdentity(
+	ig: IgApiClient,
+	saved: Record<string, unknown>,
+): boolean {
+	const values = accountIdentityFields.map(field => saved[field]);
+	if (!values.every(value => typeof value === 'string' && value.length > 0)) {
+		return false;
+	}
+
+	for (const [index, field] of accountIdentityFields.entries()) {
+		ig.state[field] = values[index] as string;
+	}
+
+	return true;
+}
+
+/**
+ * Restore a saved session, then make the application profile authoritative.
+ * Returns the saved application-level fields that the profile replaced.
+ */
+export async function restoreCompatibilitySession(
+	ig: IgApiClient,
+	session: Record<string, unknown>,
+	profile: ApplicationCompatibilityProfile = currentCompatibilityProfile,
+): Promise<string[]> {
+	const replaced = [
+		'constants' in session && 'constants',
+		'capabilitiesHeader' in session &&
+			session['capabilitiesHeader'] !== profile.capabilities &&
+			'capabilitiesHeader',
+		'supportedCapabilities' in session &&
+			JSON.stringify(session['supportedCapabilities']) !==
+				JSON.stringify(profile.supportedCapabilities) &&
+			'supportedCapabilities',
+	].filter(field => typeof field === 'string');
+	// Persisted constants are never trusted: they would also replace dependency
+	// hosts and OTA fields. Copy first; the dependency deletes deserialized keys.
+	const restorable = {...session};
+	delete restorable['constants'];
+	await ig.state.deserialize(restorable);
+	applyCompatibilityProfile(ig, profile);
+	return replaced;
+}
+
 /** Override the supported MQTT fields instead of patching its compiled code. */
 export function realtimeCompatibilityOptions(
 	profile: ApplicationCompatibilityProfile = currentCompatibilityProfile,
