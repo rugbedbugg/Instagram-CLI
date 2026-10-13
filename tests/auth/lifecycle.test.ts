@@ -427,6 +427,149 @@ test.serial(
 	},
 );
 
+const withSessionCookies = (
+	status: number,
+	body: unknown,
+): {status: number; body: unknown; headers: Record<string, string[]>} => ({
+	status,
+	body,
+	headers: {'set-cookie': sessionCookies()},
+});
+
+for (const [index, [name, response, expected]] of (
+	[
+		[
+			'an HTTP 200 without status',
+			withSessionCookies(200, {}),
+			{kind: 'incompatible-response', reason: 'malformed-response'},
+		],
+		[
+			'an accepted status without the logged-in user',
+			withSessionCookies(200, {status: 'ok'}),
+			{kind: 'incompatible-response', reason: 'missing-user'},
+		],
+		[
+			'a rejected password',
+			withSessionCookies(400, {status: 'fail', error_type: 'bad_password'}),
+			{kind: 'invalid-credentials', reason: 'bad-password'},
+		],
+	] as const
+).entries()) {
+	test.serial(
+		`evidence: session cookies with ${name} do not authenticate a login`,
+		async t => {
+			const username = `lifecycle-evidence-login-${index}`;
+			const before = await seedPreviousSession(username);
+			const {client, server, coordinator} = scenario();
+			const baseline = endObservers(client);
+			server.expect(
+				...preLogin(),
+				step('POST', '/api/v1/accounts/login/', response),
+			);
+
+			const outcome = record(
+				await coordinator.loginWithCredentials(
+					username,
+					syntheticPassword,
+					credentials,
+				),
+			);
+			await settle();
+
+			t.like(outcome, expected);
+			t.deepEqual(server.unexpected, []);
+			t.is(server.pending, 0);
+			t.is(endObservers(client), baseline);
+			t.is(await savedBytes(username), before);
+		},
+	);
+}
+
+test.serial(
+	'evidence: session cookies on a failed two-factor response do not authenticate',
+	async t => {
+		const username = 'lifecycle-evidence-two-factor';
+		const before = await seedPreviousSession(username);
+		const {client, server, coordinator} = scenario();
+		const baseline = endObservers(client);
+		server.expect(...preLogin(), twoFactorRequired);
+		await coordinator.loginWithCredentials(
+			username,
+			syntheticPassword,
+			credentials,
+		);
+		server.expect(
+			step(
+				'POST',
+				'/api/v1/accounts/two_factor_login/',
+				withSessionCookies(200, {status: 'fail'}),
+			),
+		);
+
+		const outcome = record(
+			await coordinator.submitVerificationCode(syntheticCode),
+		);
+		await settle();
+
+		t.like(outcome, {
+			kind: 'incompatible-response',
+			reason: 'malformed-response',
+		});
+		t.is(server.pending, 0);
+		t.is(endObservers(client), baseline);
+		t.is(await savedBytes(username), before);
+	},
+);
+
+test.serial(
+	'evidence: session cookies without a closed challenge do not authenticate',
+	async t => {
+		const username = 'lifecycle-evidence-challenge';
+		const before = await seedPreviousSession(username);
+		const {client, server, coordinator} = scenario();
+		const baseline = endObservers(client);
+		server.expect(
+			...preLogin(),
+			checkpointRequired,
+			step(
+				'POST',
+				`/api/v1/challenge/reset/${syntheticUserId}/synthetic-nonce/`,
+				ok({step_name: 'verify_email', step_data: {}}),
+			),
+		);
+		await coordinator.loginWithCredentials(
+			username,
+			syntheticPassword,
+			credentials,
+		);
+		t.like(await coordinator.requestCheckpointCode(), {
+			kind: 'checkpoint-code-sent',
+		});
+		server.expect(
+			step(
+				'POST',
+				`/api/v1${challengePath}`,
+				withSessionCookies(200, {
+					status: 'ok',
+					step_name: 'verify_email',
+					step_data: {},
+				}),
+			),
+		);
+
+		const outcome = record(
+			await coordinator.submitVerificationCode(syntheticCode),
+		);
+		await settle();
+
+		t.like(outcome, {kind: 'unsupported-challenge', step: 'verify_email'});
+		t.deepEqual(server.unexpected, []);
+		t.is(server.pending, 0);
+		t.is(endObservers(client), baseline);
+		t.is(await savedBytes(username), before);
+	},
+);
+
 test.serial(
 	'session save failure: authentication succeeds but reports the session as unsaved',
 	async t => {
