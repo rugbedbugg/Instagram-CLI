@@ -73,7 +73,7 @@ test.serial(
 		});
 		await settle();
 
-		t.false(result.success);
+		t.like(result, {kind: 'invalid-credentials', reason: 'bad-password'});
 		t.deepEqual(server.unexpected, []);
 		t.is(server.pending, 0);
 		t.is(await fs.readFile(sessionPath(username), 'utf8'), before);
@@ -96,7 +96,7 @@ test.serial(
 		});
 		await settle();
 
-		t.false(result.success);
+		t.like(result, {kind: 'network-error'});
 		t.deepEqual(server.unexpected, []);
 		t.is(await fs.readFile(sessionPath(username), 'utf8'), before);
 	},
@@ -121,7 +121,7 @@ test.serial(
 		});
 		await settle();
 
-		t.false(result.success);
+		t.like(result, {kind: 'incompatible-response', reason: 'missing-session'});
 		t.deepEqual(server.unexpected, []);
 		t.is(await fs.readFile(sessionPath(username), 'utf8'), before);
 	},
@@ -224,7 +224,11 @@ test.serial(
 		});
 		await client.shutdown();
 
-		t.true(result.success);
+		t.like(result, {
+			kind: 'authenticated',
+			via: 'credentials',
+			persisted: true,
+		});
 		t.deepEqual(server.unexpected, []);
 		const saved = await new SessionManager(username).loadSession();
 		for (const field of ['deviceId', 'uuid', 'phoneId', 'adid', 'build']) {

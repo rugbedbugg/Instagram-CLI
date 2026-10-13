@@ -1,5 +1,9 @@
 import {useState, useEffect} from 'react';
 import {InstagramClient} from '../../client.js';
+import {
+	describeAuthenticationOutcome,
+	nextAuthenticationStep,
+} from '../../auth/outcomes.js';
 import {ConfigManager} from '../../config.js';
 import {SessionManager} from '../../session.js';
 import {createContextualLogger} from '../../utils/logger.js';
@@ -59,19 +63,14 @@ export function useInstagramClient(
 					initializeRealtime: options.realtime ?? true,
 				});
 
-				if (!loginResult.success) {
-					// Only the auth login command can handle these cases
-					if (loginResult.checkpointError) {
-						setError(
-							'Challenge required. Please run the `login` command to resolve.',
-						);
-					} else {
-						setError(
-							loginResult.error ??
-								'Failed to login with session, try logging in with password again.',
-						);
-					}
-
+				const step = nextAuthenticationStep(loginResult);
+				if (step !== 'done') {
+					// Only the auth login command can continue verification or credentials.
+					setError(
+						step === 'stop'
+							? describeAuthenticationOutcome(loginResult)
+							: `${describeAuthenticationOutcome(loginResult)} Run \`insta-cli auth login\` to continue.`,
+					);
 					setIsLoading(false);
 					return;
 				}

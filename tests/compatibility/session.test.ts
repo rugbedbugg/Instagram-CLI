@@ -227,14 +227,16 @@ test('identity restoration for a credential login is all-or-nothing', async t =>
 
 type ApplicationSeams = {
 	preLoginFlow(): Promise<boolean>;
-	postLoginSetup(username: string): Promise<void>;
+	postLoginSetup(username: string): Promise<boolean>;
+	validateRestoredSession(): Promise<'validated'>;
 };
 
 function stubbedApplication(username?: string) {
 	const application = new InstagramClient(username);
 	const seams = application as unknown as ApplicationSeams;
 	seams.preLoginFlow = async () => true;
-	seams.postLoginSetup = async () => undefined;
+	seams.postLoginSetup = async () => true;
+	seams.validateRestoredSession = async () => 'validated';
 	const ig = application.getInstagramClient() as IgApiClientExt;
 	return {application, ig};
 }
@@ -249,7 +251,7 @@ test.serial(
 		const result = await application.loginBySession({
 			initializeRealtime: false,
 		});
-		t.true(result.success);
+		t.like(result, {kind: 'session-validated', username});
 		t.deepEqual(accountIdentity(ig), accountIdentity(legacyClient));
 		t.is(ig.state.appVersion, profile.release.appVersion);
 		t.is(ig.state.fbAnalyticsApplicationId, profile.appId);
@@ -289,7 +291,7 @@ test.serial(
 		const result = await application.login(username, 'dummy-password', {
 			initializeRealtime: false,
 		});
-		t.true(result.success);
+		t.like(result, {kind: 'authenticated', via: 'credentials'});
 		t.deepEqual(atLogin, accountIdentity(legacyClient));
 		t.is(ig.state.appVersion, profile.release.appVersion);
 		await new SessionManager(username).deleteSession();

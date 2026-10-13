@@ -1,12 +1,11 @@
 import {extname} from 'node:path';
 import {EventEmitter} from 'node:events';
 import Fuse from 'fuse.js';
+import type {InstagramClient, RealtimeStatus, SearchResult} from '../client.js';
 import type {
-	InstagramClient,
-	LoginResult,
-	RealtimeStatus,
-	SearchResult,
-} from '../client.js';
+	AuthenticationOutcome,
+	TwoFactorChallenge,
+} from '../auth/outcomes.js';
 import type {
 	Thread,
 	Message,
@@ -533,46 +532,61 @@ class MockClient extends EventEmitter {
 		username: string,
 		_password: string,
 		_options?: {initializeRealtime: boolean},
-	): Promise<LoginResult> {
+	): Promise<AuthenticationOutcome> {
 		await new Promise(resolve => {
 			setTimeout(resolve, 500);
 		}); // Simulate login delay
-		return {success: true, username};
+		return {
+			kind: 'authenticated',
+			username,
+			via: 'credentials',
+			persisted: true,
+		};
 	}
 
-	async twoFactorLogin(_options: {
-		verificationCode: string;
-		twoFactorIdentifier: string;
-		totp_two_factor_on: boolean;
-	}): Promise<LoginResult> {
+	async twoFactorLogin(
+		_verificationCode: string,
+		_challenge: TwoFactorChallenge,
+	): Promise<AuthenticationOutcome> {
 		await new Promise(resolve => {
 			setTimeout(resolve, 300);
 		});
-		return {success: true, username: 'mock_user'};
+		return {
+			kind: 'authenticated',
+			username: 'mock_user',
+			via: 'two-factor',
+			persisted: true,
+		};
 	}
 
-	async startChallenge(): Promise<void> {
+	async startChallenge(): Promise<AuthenticationOutcome> {
 		await new Promise(resolve => {
 			setTimeout(resolve, 200);
 		});
 		logger.info('Mock: Challenge started');
+		return {kind: 'checkpoint-code-sent', contactPoint: 'email'};
 	}
 
-	async sendChallengeCode(_code: string): Promise<LoginResult> {
+	async sendChallengeCode(_code: string): Promise<AuthenticationOutcome> {
 		await new Promise(resolve => {
 			setTimeout(resolve, 300);
 		});
-		return {success: true, username: 'mock_user'};
+		return {
+			kind: 'authenticated',
+			username: 'mock_user',
+			via: 'challenge',
+			persisted: true,
+		};
 	}
 
 	async loginBySession(_options?: {
 		initializeRealtime: boolean;
-	}): Promise<LoginResult> {
+	}): Promise<AuthenticationOutcome> {
 		// Simulate checking existing session
 		await new Promise(resolve => {
 			setTimeout(resolve, 200);
 		});
-		return {success: true, username: 'mock_user'};
+		return {kind: 'session-validated', username: 'mock_user'};
 	}
 
 	async logout(_usernameToLogout?: string): Promise<void> {

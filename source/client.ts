@@ -6,14 +6,10 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {
 	type IgApiClient,
-	IgCheckpointError,
-	IgLoginTwoFactorRequiredError,
 	IgExactUserNotFoundError,
-	IgLoginBadPasswordError,
 	type DirectInboxFeedResponseThreadsItem,
 	type DirectInboxFeedResponseUsersItem,
 	type DirectThreadFeedResponseItemsItem,
-	type AccountRepositoryLoginErrorResponseTwoFactorInfo,
 	type UserStoryFeedResponseItemsItem,
 	type ReelsTrayFeedResponseTrayItem,
 	type DirectThreadRepositoryBroadcastResponseRootObject,
@@ -35,6 +31,14 @@ import {
 	restoreCompatibilitySession,
 } from './compatibility/client.js';
 import {checkSessionMaterial} from './auth/authorization.js';
+import {
+	challengeStepName,
+	classifyAuthenticationError,
+	classifyChallengeStep,
+	describeAuthenticationError,
+	type AuthenticationOutcome,
+	type TwoFactorChallenge,
+} from './auth/outcomes.js';
 import {SessionPersistence} from './auth/session-persistence.js';
 import {SessionManager} from './session.js';
 import {ConfigManager} from './config.js';
@@ -58,15 +62,6 @@ import {
 	type MediaKind,
 	type PreparedMedia,
 } from './utils/local-file-policy.js';
-
-export type LoginResult = {
-	success: boolean;
-	error?: string;
-	username?: string;
-	checkpointError?: IgCheckpointError;
-	twoFactorInfo?: AccountRepositoryLoginErrorResponseTwoFactorInfo;
-	badPassword?: boolean;
-};
 
 export type SearchResult = {
 	thread: Thread;
@@ -222,17 +217,14 @@ export class InstagramClient extends EventEmitter {
 	/**
 	 * Attempts to log in to Instagram using the provided username and password.
 	 *
-	 * Performs pre-login flow and on successful login saves session states and config values.
-	 * Handles two-factor authentication and checkpoint challenges by returning relevant information.
-	 *
-	 * @param username - The Instagram username to log in with.
-	 * @param password - The password for the specified username.
-	 * @param options - Optional settings for login, including whether to initialize the realtime connection.
-	 * @returns A promise that resolves to a `LoginResult` indicating success or failure, and additional info if required.
+	 * Performs the pre-login flow; only a response that establishes session
+	 * material for the account counts as success, after which the session is
+	 * saved and persistence starts. Two-factor and checkpoint requirements are
+	 * returned as outcomes for the caller to continue explicitly.
 	 *
 	 * @remarks
 	 * This method performs a full credential-based login, which differs from session-based login.
-	 * This is the default fallback method for session-based login when it fails (e.g. session expired)
+	 * Nothing is retried; a rejected attempt never touches the saved session.
 	 *
 	 *  @note If you do not wish to initialize realtime client, you can pass in the options parameter with false.
 	 * 		  If this is the case, all responses will be handled by the API client instead
@@ -241,7 +233,7 @@ export class InstagramClient extends EventEmitter {
 		username: string,
 		password: string,
 		options?: {initializeRealtime: boolean},
-	): Promise<LoginResult> {
+	): Promise<AuthenticationOutcome> {
 		const loginOptions = options ?? {initializeRealtime: true};
 		try {
 			// Nothing this attempt receives may be written over a saved session.
@@ -264,57 +256,22 @@ export class InstagramClient extends EventEmitter {
 			}
 
 			const loggedInUser = await this.ig.account.login(username, password);
-			if (!this.sessionEstablished(loggedInUser, {requireUser: true})) {
-				return {
-					success: false,
-					error: 'The login response did not establish a session',
-				};
-			}
-
-			await this.postLoginSetup(username, {
+			return await this.completeAuthentication(username, loggedInUser, {
+				via: 'credentials',
+				requireUser: true,
 				initializeRealtime: loginOptions.initializeRealtime,
-				saveNow: true,
 			});
-
-			return {success: true, username};
 		} catch (error) {
-			if (error instanceof IgLoginTwoFactorRequiredError) {
-				return {
-					success: false,
-					twoFactorInfo: error.response.body.two_factor_info,
-				};
-			}
-
-			if (error instanceof IgCheckpointError) {
-				return {success: false, checkpointError: error};
-			}
-
-			if (error instanceof IgLoginBadPasswordError) {
-				return {
-					success: false,
-					badPassword: true,
-				};
-			}
-
-			this.logger.error('Login failed', error);
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : 'Unknown login error',
-			};
+			return this.authenticationFailure('Login', error);
 		}
 	}
 
-	public async twoFactorLogin({
-		verificationCode,
-		twoFactorIdentifier,
-		totp_two_factor_on,
-	}: {
-		verificationCode: string;
-		twoFactorIdentifier: string;
-		totp_two_factor_on: boolean;
-	}): Promise<LoginResult> {
+	public async twoFactorLogin(
+		verificationCode: string,
+		challenge: TwoFactorChallenge,
+	): Promise<AuthenticationOutcome> {
 		if (!this.username) {
-			return {success: false, error: 'No username set for 2FA login'};
+			return {kind: 'failed', reason: 'invalid-state'};
 		}
 
 		try {
@@ -324,103 +281,100 @@ export class InstagramClient extends EventEmitter {
 				this.loginFlowStates.preLoginDone = true;
 			}
 
-			const verificationMethod = totp_two_factor_on ? '0' : '1';
 			// Typed as the user, but the dependency resolves with the whole body.
 			const body: unknown = await this.ig.account.twoFactorLogin({
 				username: this.username,
 				verificationCode,
-				twoFactorIdentifier,
-				verificationMethod,
+				twoFactorIdentifier: challenge.identifier,
+				verificationMethod: challenge.method === 'totp' ? '0' : '1',
 			});
-			if (
-				!this.sessionEstablished(loggedInUserOf(body), {requireUser: false})
-			) {
-				return {
-					success: false,
-					error: 'The 2FA response did not establish a session',
-				};
-			}
-
-			await this.postLoginSetup(this.username, {
-				initializeRealtime: false,
-				saveNow: true,
-			});
-
-			return {success: true, username: this.username ?? undefined};
+			return await this.completeAuthentication(
+				this.username,
+				loggedInUserOf(body),
+				{via: 'two-factor', requireUser: false, initializeRealtime: false},
+			);
 		} catch (error) {
-			this.logger.error('2FA Login failed', error);
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : 'Unknown 2FA error',
-			};
+			return this.authenticationFailure('2FA login', error);
 		}
 	}
 
-	public async startChallenge(): Promise<void> {
-		await this.ig.challenge.auto(true);
+	/**
+	 * Ask Instagram to send a challenge code. Only steps that request an
+	 * emailed or texted code are supported; any other step is reported.
+	 */
+	public async startChallenge(): Promise<AuthenticationOutcome> {
+		try {
+			const challenge: unknown = await this.ig.challenge.auto(true);
+			if (this.ig.state.checkpoint === null) {
+				return this.username &&
+					checkSessionMaterial(this.ig, undefined, {requireUser: false})
+						.established
+					? await this.completeAuthentication(this.username, undefined, {
+							via: 'challenge',
+							requireUser: false,
+							initializeRealtime: false,
+						})
+					: {kind: 'checkpoint-cleared'};
+			}
+
+			const outcome = classifyChallengeStep(challengeStepName(challenge));
+			if (outcome.kind === 'unsupported-challenge') {
+				this.logger.warn(
+					`Unsupported challenge step: ${outcome.step ?? 'unnamed'}`,
+				);
+			}
+
+			return outcome;
+		} catch (error) {
+			return this.authenticationFailure('Starting challenge', error);
+		}
 	}
 
-	public async sendChallengeCode(code: string): Promise<LoginResult> {
+	public async sendChallengeCode(code: string): Promise<AuthenticationOutcome> {
 		if (!this.username) {
-			return {success: false, error: 'No username set for challenge login'};
+			return {kind: 'failed', reason: 'invalid-state'};
 		}
 
 		try {
 			const body: unknown = await this.ig.challenge.sendSecurityCode(code);
 			// The dependency clears the checkpoint only when the challenge closes.
 			if (this.ig.state.checkpoint !== null) {
-				return {
-					success: false,
-					error:
-						'Verification is incomplete; the next challenge step is unsupported',
-				};
+				const step = challengeStepName(this.ig.state.challenge);
+				this.logger.warn(`Challenge continued with step: ${step ?? 'unnamed'}`);
+				return {kind: 'unsupported-challenge', step};
 			}
 
-			if (
-				!this.sessionEstablished(loggedInUserOf(body), {requireUser: false})
-			) {
-				return {
-					success: false,
-					error: 'The challenge response did not establish a session',
-				};
-			}
-
-			await this.postLoginSetup(this.username, {
-				initializeRealtime: false,
-				saveNow: true,
-			});
-
-			return {success: true, username: this.username ?? undefined};
+			return await this.completeAuthentication(
+				this.username,
+				loggedInUserOf(body),
+				{via: 'challenge', requireUser: false, initializeRealtime: false},
+			);
 		} catch (error) {
-			this.logger.error('Sending challenge code failed', error);
-			return {
-				success: false,
-				error:
-					error instanceof Error ? error.message : 'Unknown challenge error',
-			};
+			return this.authenticationFailure('Sending challenge code', error);
 		}
 	}
 
+	/**
+	 * Restore the saved session, then validate it with the post-login flow's
+	 * first request. A network failure leaves it restored but unverified; the
+	 * saved file is only rewritten once Instagram has accepted the session.
+	 */
 	public async loginBySession(options?: {
 		initializeRealtime: boolean;
-	}): Promise<LoginResult> {
+	}): Promise<AuthenticationOutcome> {
 		// No need to perform preLoginFlow here as session login does not require it
 		// This is not verified just a guess based on the purpose of preLoginFlow...
 
 		const sessionOptions = options ?? {initializeRealtime: true};
-		if (!this.sessionManager) {
-			return {success: false, error: 'No session manager initialized'};
+		if (!this.sessionManager || !this.username) {
+			return {kind: 'no-session', reason: 'missing'};
 		}
 
 		try {
 			await this.persistence.deactivate({flush: true});
 			const sessionData = await this.sessionManager.loadSession();
 			if (!sessionData) {
-				return {success: false, error: 'No session file found'};
-			}
-
-			if (!this.username) {
-				return {success: false, error: 'No username set for session login'};
+				return {kind: 'no-session', reason: 'missing'};
 			}
 
 			generateCompatibilityDevice(this.ig, this.username);
@@ -432,28 +386,28 @@ export class InstagramClient extends EventEmitter {
 			}
 
 			if (!this.sessionEstablished(undefined, {requireUser: false})) {
-				return {
-					success: false,
-					error: 'The saved session holds no authorization',
-				};
+				return {kind: 'no-session', reason: 'unusable'};
 			}
 
-			// The restored file is not rewritten here; later responses persist.
+			const validation = await this.validateRestoredSession();
+			if (validation !== 'validated' && validation !== 'unverified') {
+				return validation;
+			}
+
+			if (validation === 'unverified') {
+				// Instagram is unreachable; do not repeat the cold-start requests.
+				this.loginFlowStates.postLoginDone = true;
+			}
+
 			await this.postLoginSetup(this.username, {
 				initializeRealtime: sessionOptions.initializeRealtime,
-				saveNow: false,
+				saveNow: validation === 'validated',
 			});
-			return {success: true, username: this.username ?? undefined};
+			return validation === 'validated'
+				? {kind: 'session-validated', username: this.username}
+				: {kind: 'session-restored-unverified', username: this.username};
 		} catch (error) {
-			if (error instanceof IgCheckpointError) {
-				return {success: false, checkpointError: error};
-			}
-
-			this.logger.error('Failed to login with session', error);
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : 'Unknown session error',
-			};
+			return this.authenticationFailure('Session login', error);
 		}
 	}
 
@@ -1293,6 +1247,61 @@ export class InstagramClient extends EventEmitter {
 		this.setRealtimeStatus('connected');
 	}
 
+	/**
+	 * Accept a completed authentication step only when it established session
+	 * material for the account; then save it and start persistence.
+	 */
+	private async completeAuthentication(
+		username: string,
+		loggedInUser: unknown,
+		options: {
+			via: Extract<AuthenticationOutcome, {kind: 'authenticated'}>['via'];
+			requireUser: boolean;
+			initializeRealtime: boolean;
+		},
+	): Promise<AuthenticationOutcome> {
+		const material = checkSessionMaterial(this.ig, loggedInUser, options);
+		if (!material.established) {
+			this.logger.warn(
+				`Authentication step did not establish a session (${material.reason})`,
+			);
+			return {kind: 'incompatible-response', reason: material.reason};
+		}
+
+		const persisted = await this.postLoginSetup(username, {
+			initializeRealtime: options.initializeRealtime,
+			saveNow: true,
+		});
+		return {kind: 'authenticated', username, via: options.via, persisted};
+	}
+
+	private authenticationFailure(
+		step: string,
+		error: unknown,
+	): AuthenticationOutcome {
+		const outcome = classifyAuthenticationError(error);
+		// Class and status only: server bodies and request options stay out.
+		this.logger.warn(
+			`${step} ended with ${outcome.kind}: ${describeAuthenticationError(error)}`,
+		);
+		return outcome;
+	}
+
+	/** Run the post-login flow's first request as the restored session's check. */
+	private async validateRestoredSession(): Promise<
+		'validated' | 'unverified' | AuthenticationOutcome
+	> {
+		try {
+			await this.ig.feed.reelsTray('cold_start').request();
+			this.hasInitializedReelsTray = true;
+			return 'validated';
+		} catch (error) {
+			const outcome = this.authenticationFailure('Session validation', error);
+			// Unreachable is not expired: keep the session, unverified.
+			return outcome.kind === 'network-error' ? 'unverified' : outcome;
+		}
+	}
+
 	private sessionEstablished(
 		loggedInUser: unknown,
 		options: {requireUser: boolean},
@@ -1430,8 +1439,12 @@ export class InstagramClient extends EventEmitter {
 	 */
 	private async postLoginFlow(): Promise<boolean> {
 		try {
-			await this.ig.feed.reelsTray('cold_start').request();
-			this.hasInitializedReelsTray = true;
+			// A restored session's validation already made the cold-start request.
+			if (!this.hasInitializedReelsTray) {
+				await this.ig.feed.reelsTray('cold_start').request();
+				this.hasInitializedReelsTray = true;
+			}
+
 			await this.ig.feed.timeline('cold_start_fetch').request();
 			return true;
 		} catch (error) {
@@ -1446,7 +1459,7 @@ export class InstagramClient extends EventEmitter {
 			initializeRealtime?: boolean;
 			saveNow: boolean;
 		},
-	): Promise<void> {
+	): Promise<boolean> {
 		const originalUsername = username;
 		const {initializeRealtime = true} = options;
 
@@ -1456,9 +1469,7 @@ export class InstagramClient extends EventEmitter {
 
 		// Only an established session turns persistence on.
 		this.persistence.activate(this.sessionManager);
-		if (options.saveNow) {
-			await this.persistence.save();
-		}
+		const persisted = options.saveNow ? await this.persistence.save() : true;
 
 		// Use the original username to maintain consistency with session file paths
 		// Instagram API may return username in different casing (usually lowercase)
@@ -1495,5 +1506,7 @@ export class InstagramClient extends EventEmitter {
 				}
 			})(),
 		]);
+
+		return persisted;
 	}
 }
