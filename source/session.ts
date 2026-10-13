@@ -1,83 +1,19 @@
-import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import process from 'node:process';
 import {ConfigManager} from './config.js';
+import {
+	type AtomicFileSystem,
+	enqueueFileOperation as enqueue,
+	nodeFileSystem,
+	replaceFile,
+	temporaryFilePrefix,
+} from './utils/atomic-file.js';
 import {createContextualLogger} from './utils/logger.js';
 
 export type SerializedState = Record<string, any>;
 
 /** File operations a session write depends on; replaceable in tests. */
-export type SessionFileSystem = {
-	open: typeof fs.open;
-	rename: typeof fs.rename;
-	unlink: typeof fs.unlink;
-};
-
-const nodeFileSystem: SessionFileSystem = {
-	open: fs.open,
-	rename: fs.rename,
-	unlink: fs.unlink,
-};
-
-// One operation at a time per session file, across every SessionManager in
-// this process, in call order. Atomic replacement covers other processes.
-const sessionQueues = new Map<string, Promise<void>>();
-
-async function enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
-	const previous = sessionQueues.get(key) ?? Promise.resolve();
-	const run = previous.then(task);
-	const settled = run.then(
-		() => undefined,
-		() => undefined,
-	);
-	sessionQueues.set(key, settled);
-	void settled.then(() => {
-		if (sessionQueues.get(key) === settled) {
-			sessionQueues.delete(key);
-		}
-	});
-	return run;
-}
-
-/**
- * Write a complete owner-only temporary file beside the target, flush it, then
- * rename it over the target. Readers see the previous file or the new one,
- * never a partial write; a failure removes the temporary file.
- */
-async function replaceFile(
-	fileSystem: SessionFileSystem,
-	target: string,
-	data: string,
-): Promise<void> {
-	const temporary = path.join(
-		path.dirname(target),
-		`.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`,
-	);
-	let handle: fs.FileHandle | undefined;
-	try {
-		handle = await fileSystem.open(temporary, 'wx', 0o600);
-		await handle.writeFile(data, 'utf8');
-		await handle.sync();
-		await handle.close();
-		handle = undefined;
-		await fileSystem.rename(temporary, target);
-	} catch (error) {
-		await handle?.close().catch(() => undefined);
-		await fileSystem.unlink(temporary).catch(() => undefined);
-		throw error;
-	}
-
-	// Best effort: persist the rename itself. Not supported on every platform.
-	try {
-		const directory = await fileSystem.open(path.dirname(target), 'r');
-		try {
-			await directory.sync();
-		} finally {
-			await directory.close();
-		}
-	} catch {}
-}
+export type SessionFileSystem = AtomicFileSystem;
 
 /**
  * Remove temporary files that interrupted writes of `target` left behind; they
@@ -89,7 +25,7 @@ async function removeTemporaryFiles(
 	target: string,
 ): Promise<void> {
 	const directory = path.dirname(target);
-	const prefix = `.${path.basename(target)}.`;
+	const prefix = temporaryFilePrefix(target);
 	let entries: string[];
 	try {
 		entries = await fs.readdir(directory);
