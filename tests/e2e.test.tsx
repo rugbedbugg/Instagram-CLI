@@ -16,12 +16,6 @@ test.after.always('opens no outbound sockets', t => {
 	t.is(network.attempts, 0);
 });
 
-const delay = async (ms: number): Promise<void> => {
-	return new Promise(resolve => {
-		setTimeout(resolve, ms);
-	});
-};
-
 test('sanity check', (t: ExecutionContext) => {
 	const {lastFrame, unmount} = render(<Index />);
 
@@ -91,27 +85,30 @@ test('renders stories view', (t: ExecutionContext) => {
 test('chat view displays messages when thread is selected', async (t: ExecutionContext) => {
 	const {lastFrame, stdin, unmount} = render(<AppMock view="chat" />);
 
-	await delay(1100);
-
-	// Verify threads are displayed
-	let output = lastFrame();
+	// Threads arrive after the mock client's simulated latency; wait for them
+	// rather than for a fixed time.
+	let output = await waitForFrame(lastFrame, frame =>
+		frame.includes(mockThreads[0]!.title),
+	);
 	t.truthy(output, 'Frame should render threads');
 	t.true(
-		output!.includes(mockThreads[0]!.title),
+		output.includes(mockThreads[0]!.title),
 		'Thread should be visible before selection',
 	);
 
 	// Select first thread by pressing Enter
 	stdin.write('\r');
 
-	await delay(500);
-
-	output = lastFrame();
-	t.truthy(output, 'Frame should render after thread selection');
 	const lastMessage = mockMessages.at(-1)!;
+	output = await waitForFrame(
+		lastFrame,
+		frame =>
+			lastMessage.itemType === 'text' && frame.includes(lastMessage.text),
+	);
+	t.truthy(output, 'Frame should render after thread selection');
 	if (lastMessage.itemType === 'text') {
 		t.true(
-			output!.includes(lastMessage.text),
+			output.includes(lastMessage.text),
 			'First message should be visible',
 		);
 	} else {
