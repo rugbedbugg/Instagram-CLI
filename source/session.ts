@@ -79,6 +79,39 @@ async function replaceFile(
 	} catch {}
 }
 
+/**
+ * Remove temporary files that interrupted writes of `target` left behind; they
+ * hold session state. Run inside the target's queue, so none of them belongs
+ * to a write still in progress in this process.
+ */
+async function removeTemporaryFiles(
+	fileSystem: SessionFileSystem,
+	target: string,
+): Promise<void> {
+	const directory = path.dirname(target);
+	const prefix = `.${path.basename(target)}.`;
+	let entries: string[];
+	try {
+		entries = await fs.readdir(directory);
+	} catch {
+		return;
+	}
+
+	await Promise.all(
+		entries
+			.filter(entry => entry.startsWith(prefix) && entry.endsWith('.tmp'))
+			.map(async entry => {
+				try {
+					await fileSystem.unlink(path.join(directory, entry));
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+						throw error;
+					}
+				}
+			}),
+	);
+}
+
 export class SessionManager {
 	private username: string | undefined;
 	private readonly configManager: ConfigManager;
@@ -175,6 +208,13 @@ export class SessionManager {
 					this.logger.error('Error deleting session:', error);
 					throw error;
 				}
+			}
+
+			try {
+				await removeTemporaryFiles(this.fileSystem, sessionPath);
+			} catch (error) {
+				this.logger.error('Error deleting interrupted session write:', error);
+				throw error;
 			}
 		});
 	}

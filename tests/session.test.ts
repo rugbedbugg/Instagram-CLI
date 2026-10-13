@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'ava';
 import {SessionManager, type SessionFileSystem} from '../source/session.js';
 import {ConfigManager} from '../source/config.js';
+import {InstagramClient} from '../source/client.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -247,6 +248,79 @@ test.serial(
 			const {mode} = await fs.stat(sessionPath);
 			t.is(mode & 0o777, 0o600);
 			t.deepEqual(await strayFiles(tmpDir, 'atomic-reload'), []);
+		});
+	},
+);
+
+test.serial(
+	'cleanupSessions: a write already in progress cannot recreate a cleaned-up session',
+	async t => {
+		await withTempUsersDir(async tmpDir => {
+			await seed('cleanup-race', tmpDir);
+			let release!: () => void;
+			const gate = new Promise<void>(resolve => {
+				release = resolve;
+			});
+			let renaming!: () => void;
+			const reachedRename = new Promise<void>(resolve => {
+				renaming = resolve;
+			});
+			const fileSystem: SessionFileSystem = {
+				...realFileSystem,
+				async rename(...parameters: Parameters<typeof fs.rename>) {
+					renaming();
+					await gate;
+					await fs.rename(...parameters);
+				},
+			};
+
+			// The temporary file is complete; only its rename is outstanding.
+			const save = new SessionManager('cleanup-race', {
+				fileSystem,
+			}).saveSession({cookies: 'in-flight'});
+			await reachedRename;
+			const cleanup = InstagramClient.cleanupSessions();
+			await Promise.race([
+				cleanup,
+				new Promise(resolve => {
+					setTimeout(resolve, 50);
+				}),
+			]);
+			release();
+			await Promise.all([save, cleanup]);
+
+			t.false(await new SessionManager('cleanup-race').sessionExists());
+			t.deepEqual(await strayFiles(tmpDir, 'cleanup-race'), []);
+		});
+	},
+);
+
+test.serial(
+	'cleanupSessions: removes every session and interrupted temporary file',
+	async t => {
+		await withTempUsersDir(async tmpDir => {
+			await seed('cleanup-first', tmpDir);
+			await seed('cleanup-second', tmpDir);
+			const leftover = path.join(
+				tmpDir,
+				'cleanup-second',
+				'.session.ts.json.99999.00000000-0000-4000-8000-000000000000.tmp',
+			);
+			await fs.writeFile(leftover, 'interrupted-session-material', {
+				mode: 0o600,
+			});
+			await fs.writeFile(path.join(tmpDir, 'not-an-account'), 'unrelated');
+
+			await InstagramClient.cleanupSessions();
+
+			t.false(await new SessionManager('cleanup-first').sessionExists());
+			t.false(await new SessionManager('cleanup-second').sessionExists());
+			t.deepEqual(await strayFiles(tmpDir, 'cleanup-first'), []);
+			t.deepEqual(await strayFiles(tmpDir, 'cleanup-second'), []);
+			t.is(
+				await fs.readFile(path.join(tmpDir, 'not-an-account'), 'utf8'),
+				'unrelated',
+			);
 		});
 	},
 );

@@ -102,19 +102,29 @@ export class InstagramClient extends EventEmitter {
 			await configManager.set('login.currentUsername', undefined);
 
 			const usersDirectory = configManager.get('advanced.usersDir');
+			let entries: fs.Dirent[];
 			try {
-				const userDirectories = fs.readdirSync(usersDirectory);
-				for (const userSubdirectory of userDirectories) {
-					const sessionFile = join(
-						usersDirectory,
-						userSubdirectory,
-						'session.ts.json',
-					);
-					try {
-						fs.unlinkSync(sessionFile);
-					} catch {}
-				}
-			} catch {}
+				entries = await fs.promises.readdir(usersDirectory, {
+					withFileTypes: true,
+				});
+			} catch {
+				// No users directory: nothing to clean up
+				return;
+			}
+
+			// Through each account's session queue: writes requested before the
+			// cleanup finish first and cannot recreate a file afterwards.
+			const results = await Promise.allSettled(
+				entries
+					.filter(entry => entry.isDirectory())
+					.map(async entry => new SessionManager(entry.name).deleteSession()),
+			);
+			const failures = results.flatMap(result =>
+				result.status === 'rejected' ? [result.reason as unknown] : [],
+			);
+			if (failures.length > 0) {
+				throw new AggregateError(failures, 'Could not remove every session');
+			}
 		} catch (error) {
 			const logger = createContextualLogger('cleanupSessions');
 			logger.error('Error during session cleanup', error);
