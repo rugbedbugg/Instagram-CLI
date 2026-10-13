@@ -7,6 +7,13 @@ import {render} from 'ink-testing-library';
 import ThreadItem from '../source/ui/components/thread-item.js';
 import MessageList from '../source/ui/components/message-list.js';
 import {mockThreads, mockMessages} from '../source/mocks/mock-data.js';
+import {denyOutboundSockets} from './_deny-sockets.js';
+
+const network = denyOutboundSockets();
+test.after.always('opens no outbound sockets', t => {
+	network.restore();
+	t.is(network.attempts, 0);
+});
 
 // Force chalk to emit ANSI color codes so the cursor highlight is visible in
 // the captured frame output. This must be set before any rendering occurs.

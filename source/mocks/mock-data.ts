@@ -6,6 +6,13 @@ import type {
 	Reaction,
 	Story,
 } from '../types/instagram.js';
+import {
+	duskImage,
+	forestImage,
+	mockImageUrls,
+	oceanImage,
+	sunsetImage,
+} from './mock-images.js';
 
 export const MOCK_USER_COUNT = 75;
 
@@ -168,12 +175,7 @@ const lastNames = [
 	'Long',
 ];
 
-const imageUrls = [
-	'https://sipi.usc.edu/database/preview/misc/4.1.01.png',
-	'https://sipi.usc.edu/database/preview/misc/4.1.02.png',
-	'https://www.math.hkust.edu.hk/~masyleung/Teaching/CAS/MATLAB/image/images/cameraman.jpg',
-	'https://upload.wikimedia.org/wikipedia/en/thumb/7/7d/Lenna_%28test_image%29.png/500px-Lenna_%28test_image%29.png',
-];
+const imageUrls = mockImageUrls;
 
 const captions = [
 	'Beautiful sunset today! 🌅 #nature #photography',
@@ -405,7 +407,7 @@ export const mockMessages: Message[] = [
 			image_versions2: {
 				candidates: [
 					{
-						url: 'https://sipi.usc.edu/database/preview/misc/4.1.01.png',
+						url: sunsetImage,
 						width: 512,
 						height: 512,
 					},
@@ -434,7 +436,7 @@ export const mockMessages: Message[] = [
 			image_versions2: {
 				candidates: [
 					{
-						url: 'https://www.math.hkust.edu.hk/~masyleung/Teaching/CAS/MATLAB/image/images/cameraman.jpg',
+						url: forestImage,
 						width: 256,
 						height: 256,
 					},
@@ -462,7 +464,7 @@ export const mockMessages: Message[] = [
 			image_versions2: {
 				candidates: [
 					{
-						url: 'https://upload.wikimedia.org/wikipedia/en/thumb/7/7d/Lenna_%28test_image%29.png/500px-Lenna_%28test_image%29.png',
+						url: duskImage,
 						width: 500,
 						height: 500,
 					},
@@ -498,7 +500,7 @@ export const mockMessages: Message[] = [
 			user: {
 				pk: 12_345,
 				username: 'nature_photographer',
-				profilePicUrl: 'https://example.com/profile.jpg',
+				profilePicUrl: oceanImage,
 			},
 			caption: {
 				text: 'sample caption 1',
@@ -506,7 +508,7 @@ export const mockMessages: Message[] = [
 			image_versions2: {
 				candidates: [
 					{
-						url: 'https://sipi.usc.edu/database/preview/misc/4.1.01.png',
+						url: sunsetImage,
 						width: 1080,
 						height: 1080,
 					},
@@ -531,7 +533,7 @@ export const mockMessages: Message[] = [
 			user: {
 				pk: 67_890,
 				username: 'tech_news',
-				profilePicUrl: 'https://example.com/tech_profile.jpg',
+				profilePicUrl: forestImage,
 			},
 			caption: {
 				text: 'sample caption 2',
@@ -539,7 +541,7 @@ export const mockMessages: Message[] = [
 			image_versions2: {
 				candidates: [
 					{
-						url: 'https://upload.wikimedia.org/wikipedia/en/thumb/7/7d/Lenna_%28test_image%29.png/500px-Lenna_%28test_image%29.png',
+						url: duskImage,
 						width: 1200,
 						height: 800,
 					},

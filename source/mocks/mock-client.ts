@@ -23,6 +23,7 @@ import {
 	mockStories,
 	mockUsers,
 } from './mock-data.js';
+import {oceanImage} from './mock-images.js';
 
 const logger = createContextualLogger('MockClient');
 
@@ -439,7 +440,7 @@ class MockClient extends EventEmitter {
 			pk: 'current_user_id',
 			username: 'mock_user',
 			fullName: 'Mock User',
-			profilePicUrl: 'https://via.placeholder.com/150',
+			profilePicUrl: oceanImage,
 			isVerified: false,
 		};
 	}
@@ -452,7 +453,7 @@ class MockClient extends EventEmitter {
 			pk: '12345',
 			username,
 			fullName: 'Mock Profile User',
-			profilePicUrl: 'https://via.placeholder.com/150',
+			profilePicUrl: oceanImage,
 			isVerified: true,
 			isPrivate: false,
 			biography: 'Mock bio for testing. Building cool things in the terminal.',

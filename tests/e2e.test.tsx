@@ -8,6 +8,13 @@ import Version from '../source/commands/version.js';
 import {AppMock} from '../source/mocks/app.mock.js';
 import {mockThreads, mockMessages} from '../source/mocks/mock-data.js';
 import {waitForFrame} from './_wait-for-frame.js';
+import {denyOutboundSockets} from './_deny-sockets.js';
+
+const network = denyOutboundSockets();
+test.after.always('opens no outbound sockets', t => {
+	network.restore();
+	t.is(network.attempts, 0);
+});
 
 const delay = async (ms: number): Promise<void> => {
 	return new Promise(resolve => {

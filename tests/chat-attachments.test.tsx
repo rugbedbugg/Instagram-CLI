@@ -9,6 +9,9 @@ import {render} from 'ink-testing-library';
 import {AppMock} from '../source/mocks/app.mock.js';
 import {mockThreads} from '../source/mocks/mock-data.js';
 import {waitForFrame} from './_wait-for-frame.js';
+import {denyOutboundSockets} from './_deny-sockets.js';
+
+const network = denyOutboundSockets();
 
 // The attachment confirmation boundary, exercised through the real chat view
 // with the mock client. Files live in a temporary directory only.
@@ -20,8 +23,10 @@ test.before(() => {
 	fs.writeFileSync(attachment, 'attachment body');
 });
 
-test.after.always(() => {
+test.after.always('cleans up and opened no outbound sockets', t => {
 	fs.rmSync(root, {recursive: true, force: true});
+	network.restore();
+	t.is(network.attempts, 0);
 });
 
 test.serial(
