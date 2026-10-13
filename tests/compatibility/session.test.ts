@@ -22,6 +22,8 @@ import baseline from './_fixtures/compatibility-baseline.json' with {type: 'json
 import {
 	captureMqtt,
 	captureRest,
+	dummySession,
+	dummyUserId,
 	dummyUsername,
 	fixtureClient,
 	forbidNetwork,
@@ -266,11 +268,21 @@ test.serial(
 		await new SessionManager(username).saveSession(serialized);
 		const {application, ig} = stubbedApplication();
 		let atLogin: ReturnType<typeof accountIdentity> | undefined;
-		// Replace only the final login request; its response is never inspected.
+		// Replace only the final login request with a synthetic established session.
 		Object.assign(ig.account, {
 			async login() {
 				atLogin = accountIdentity(ig);
-				return {};
+				for (const cookie of [
+					`ds_user_id=${dummyUserId}`,
+					`sessionid=${dummySession}`,
+				]) {
+					ig.state.cookieJar.setCookie(
+						`${cookie}; Domain=.instagram.com; Path=/`,
+						'https://i.instagram.com/',
+					);
+				}
+
+				return {pk: Number(dummyUserId)};
 			},
 		});
 

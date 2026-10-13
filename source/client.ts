@@ -34,6 +34,8 @@ import {
 	restoreAccountIdentity,
 	restoreCompatibilitySession,
 } from './compatibility/client.js';
+import {checkSessionMaterial} from './auth/authorization.js';
+import {SessionPersistence} from './auth/session-persistence.js';
 import {SessionManager} from './session.js';
 import {ConfigManager} from './config.js';
 import type {
@@ -87,6 +89,12 @@ function extractItemId(result: BroadcastResponse): string {
 	}
 
 	return result.item_id;
+}
+
+function loggedInUserOf(body: unknown): unknown {
+	return typeof body === 'object' && body !== null && 'logged_in_user' in body
+		? body.logged_in_user
+		: undefined;
 }
 
 // eslint-disable-next-line unicorn/prefer-event-target
@@ -171,6 +179,7 @@ export class InstagramClient extends EventEmitter {
 	private realtimeStatus: RealtimeStatus = 'disconnected';
 
 	private sessionManager: SessionManager | undefined = undefined;
+	private readonly persistence: SessionPersistence;
 	private readonly configManager: ConfigManager;
 	private username: string | undefined = undefined;
 	private readonly userCache = new Map<string, string>();
@@ -201,6 +210,7 @@ export class InstagramClient extends EventEmitter {
 	constructor(username?: string) {
 		super();
 		this.ig = createInstagramApiClient();
+		this.persistence = new SessionPersistence(this.ig);
 		this.configManager = ConfigManager.getInstance();
 
 		if (username) {
@@ -234,6 +244,8 @@ export class InstagramClient extends EventEmitter {
 	): Promise<LoginResult> {
 		const loginOptions = options ?? {initializeRealtime: true};
 		try {
+			// Nothing this attempt receives may be written over a saved session.
+			await this.persistence.deactivate({flush: true});
 			this.username = username;
 			this.sessionManager = new SessionManager(username);
 
@@ -245,19 +257,23 @@ export class InstagramClient extends EventEmitter {
 				this.logger.info('Reusing saved device identity for credential login');
 			}
 
-			this.ig.request.end$.subscribe(async () => {
-				await this.saveSessionState();
-			});
-
 			if (!this.loginFlowStates.preLoginDone) {
 				await this.preLoginFlow();
 				// Continue even if preLoginFlow fails
 				this.loginFlowStates.preLoginDone = true;
 			}
 
-			await this.ig.account.login(username, password);
+			const loggedInUser = await this.ig.account.login(username, password);
+			if (!this.sessionEstablished(loggedInUser, {requireUser: true})) {
+				return {
+					success: false,
+					error: 'The login response did not establish a session',
+				};
+			}
+
 			await this.postLoginSetup(username, {
 				initializeRealtime: loginOptions.initializeRealtime,
+				saveNow: true,
 			});
 
 			return {success: true, username};
@@ -309,13 +325,26 @@ export class InstagramClient extends EventEmitter {
 			}
 
 			const verificationMethod = totp_two_factor_on ? '0' : '1';
-			await this.ig.account.twoFactorLogin({
+			// Typed as the user, but the dependency resolves with the whole body.
+			const body: unknown = await this.ig.account.twoFactorLogin({
 				username: this.username,
 				verificationCode,
 				twoFactorIdentifier,
 				verificationMethod,
 			});
-			await this.postLoginSetup(this.username, {initializeRealtime: false});
+			if (
+				!this.sessionEstablished(loggedInUserOf(body), {requireUser: false})
+			) {
+				return {
+					success: false,
+					error: 'The 2FA response did not establish a session',
+				};
+			}
+
+			await this.postLoginSetup(this.username, {
+				initializeRealtime: false,
+				saveNow: true,
+			});
 
 			return {success: true, username: this.username ?? undefined};
 		} catch (error) {
@@ -337,8 +366,29 @@ export class InstagramClient extends EventEmitter {
 		}
 
 		try {
-			await this.ig.challenge.sendSecurityCode(code);
-			await this.postLoginSetup(this.username, {initializeRealtime: false});
+			const body: unknown = await this.ig.challenge.sendSecurityCode(code);
+			// The dependency clears the checkpoint only when the challenge closes.
+			if (this.ig.state.checkpoint !== null) {
+				return {
+					success: false,
+					error:
+						'Verification is incomplete; the next challenge step is unsupported',
+				};
+			}
+
+			if (
+				!this.sessionEstablished(loggedInUserOf(body), {requireUser: false})
+			) {
+				return {
+					success: false,
+					error: 'The challenge response did not establish a session',
+				};
+			}
+
+			await this.postLoginSetup(this.username, {
+				initializeRealtime: false,
+				saveNow: true,
+			});
 
 			return {success: true, username: this.username ?? undefined};
 		} catch (error) {
@@ -363,6 +413,7 @@ export class InstagramClient extends EventEmitter {
 		}
 
 		try {
+			await this.persistence.deactivate({flush: true});
 			const sessionData = await this.sessionManager.loadSession();
 			if (!sessionData) {
 				return {success: false, error: 'No session file found'};
@@ -373,11 +424,6 @@ export class InstagramClient extends EventEmitter {
 			}
 
 			generateCompatibilityDevice(this.ig, this.username);
-
-			this.ig.request.end$.subscribe(async () => {
-				await this.saveSessionState();
-			});
-
 			const replaced = await restoreCompatibilitySession(this.ig, sessionData);
 			if (replaced.length > 0) {
 				this.logger.info(
@@ -385,8 +431,17 @@ export class InstagramClient extends EventEmitter {
 				);
 			}
 
+			if (!this.sessionEstablished(undefined, {requireUser: false})) {
+				return {
+					success: false,
+					error: 'The saved session holds no authorization',
+				};
+			}
+
+			// The restored file is not rewritten here; later responses persist.
 			await this.postLoginSetup(this.username, {
 				initializeRealtime: sessionOptions.initializeRealtime,
+				saveNow: false,
 			});
 			return {success: true, username: this.username ?? undefined};
 		} catch (error) {
@@ -405,6 +460,15 @@ export class InstagramClient extends EventEmitter {
 	public async logout(usernameToLogout?: string): Promise<void> {
 		try {
 			const targetUsername = usernameToLogout ?? this.username;
+			if (
+				!targetUsername ||
+				targetUsername === this.username ||
+				targetUsername === this.sessionManager?.getUsername()
+			) {
+				// Stop saving before deletion so no write can recreate the file.
+				await this.persistence.deactivate();
+			}
+
 			if (targetUsername) {
 				const sessionManager = new SessionManager(targetUsername);
 				await sessionManager.deleteSession();
@@ -433,6 +497,8 @@ export class InstagramClient extends EventEmitter {
 		if (this.realtime) {
 			await this.realtime.disconnect();
 		}
+
+		await this.persistence.deactivate({flush: true});
 	}
 
 	public async switchUser(username: string): Promise<void> {
@@ -1227,18 +1293,18 @@ export class InstagramClient extends EventEmitter {
 		this.setRealtimeStatus('connected');
 	}
 
-	private async saveSessionState(): Promise<void> {
-		if (!this.sessionManager) {
-			return;
+	private sessionEstablished(
+		loggedInUser: unknown,
+		options: {requireUser: boolean},
+	): boolean {
+		const material = checkSessionMaterial(this.ig, loggedInUser, options);
+		if (!material.established) {
+			this.logger.warn(
+				`Authentication step did not establish a session (${material.reason})`,
+			);
 		}
 
-		try {
-			const serialized = await this.ig.state.serialize();
-			// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-			await this.sessionManager.saveSession(serialized);
-		} catch (error) {
-			this.logger.error('Error saving session state', error);
-		}
+		return material.established;
 	}
 
 	private getThreadTitle(thread: DirectInboxFeedResponseThreadsItem): string {
@@ -1378,12 +1444,21 @@ export class InstagramClient extends EventEmitter {
 		username: string,
 		options: {
 			initializeRealtime?: boolean;
+			saveNow: boolean;
 		},
 	): Promise<void> {
 		const originalUsername = username;
 		const {initializeRealtime = true} = options;
 
-		await this.saveSessionState();
+		if (!this.sessionManager) {
+			throw new Error('No session manager for an established session');
+		}
+
+		// Only an established session turns persistence on.
+		this.persistence.activate(this.sessionManager);
+		if (options.saveNow) {
+			await this.persistence.save();
+		}
 
 		// Use the original username to maintain consistency with session file paths
 		// Instagram API may return username in different casing (usually lowercase)
