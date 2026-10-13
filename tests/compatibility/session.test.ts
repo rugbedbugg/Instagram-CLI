@@ -116,7 +116,7 @@ test('an M1 saved session keeps its hardware and identifiers while the profile r
 		after.state.extractCookieValue('sessionid'),
 		before.state.extractCookieValue('sessionid'),
 	);
-	const legacyUserAgent = `Instagram 448.0.0.0.20 Android (${baseline.deviceString}; de_DE; 1065560286)`;
+	const legacyUserAgent = `Instagram 449.0.0.52.84 Android (${baseline.deviceString}; de_DE; 1079242191)`;
 	const {wire} = await captureRest(after, async () =>
 		after.launcher.postLoginSync(),
 	);

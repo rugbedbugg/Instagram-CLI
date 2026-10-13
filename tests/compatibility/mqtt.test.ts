@@ -11,6 +11,7 @@ import {
 } from 'instagram_mqtt';
 import {compressDeflate} from 'instagram_mqtt/dist/shared.js';
 import {
+	android448HistoricalProfile as historical448,
 	currentCompatibilityProfile as profile,
 	formatDeviceString,
 	type InstagramCompatibilityProfile,
@@ -77,14 +78,14 @@ test('legacy reference MQTT connection and Thrift preserve the M1 fingerprint', 
 });
 
 const selectedUserAgent =
-	'Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)';
+	'Instagram 449.0.0.52.84 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1079242191)';
 
 test('selected profile reaches MQTT connection data and serialized Thrift', async t => {
 	const ig = fixtureClient();
 	const {data, decoded, thrift} = captureMqtt(ig);
 	t.deepEqual(data.appSpecificInfo, {
 		...identity.mqtt.appSpecificInfo,
-		app_version: '448.0.0.0.20',
+		app_version: '449.0.0.52.84',
 		'User-Agent': selectedUserAgent,
 	});
 	t.deepEqual(decoded.appSpecificInfo, data.appSpecificInfo);
@@ -107,6 +108,22 @@ test('selected profile reaches MQTT connection data and serialized Thrift', asyn
 	]) {
 		t.false(serialized.includes(marker), `No legacy ${marker}`);
 	}
+});
+
+test('the historical 448 profile still reaches REST and MQTT exactly', async t => {
+	const ig = fixtureClient(historical448);
+	const {wire} = await captureRest(ig, async () => ig.launcher.preLoginSync());
+	const {data} = captureMqtt(ig, historical448);
+	const userAgent =
+		'Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)';
+	t.is(wire.headers['user-agent'], userAgent);
+	t.is(
+		wire.headers['x-bloks-version-id'],
+		'0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432',
+	);
+	t.is(data.clientInfo?.userAgent, userAgent);
+	t.is(data.appSpecificInfo?.app_version, '448.0.0.0.20');
+	t.not(data.appSpecificInfo?.app_version, profile.release.appVersion);
 });
 
 test('REST and MQTT present one identity for the selected profile', async t => {
@@ -296,7 +313,7 @@ test('Iris subscription carries the selected application version', async t => {
 	t.deepEqual(JSON.parse(inflateSync(payload!).toString()), {
 		seq_id: 3,
 		snapshot_at_ms: 4,
-		snapshot_app_version: '448.0.0.0.20',
+		snapshot_app_version: '449.0.0.52.84',
 	});
 });
 

@@ -30,7 +30,23 @@ export type ApplicationRelease = {
 	readonly bloksVersionId: string;
 };
 
-export type ProfileStatus = 'selected' | 'legacy-reference';
+export type ProfileStatus =
+	| 'selected'
+	| 'historical-reference'
+	| 'legacy-reference';
+
+/**
+ * What is known about a profile. `offline` is this project's own harness
+ * result; `liveLogin` is never claimed from offline evidence.
+ */
+export type ProfileEvidence = {
+	readonly summary: string;
+	readonly offline: 'verified-coherent' | 'inconsistent';
+	readonly liveLogin:
+		| 'unverified'
+		| 'historical-success-later-failing'
+		| 'known-failing';
+};
 
 /**
  * Application-level identity. These fields follow the selected profile and are
@@ -40,6 +56,7 @@ export type ApplicationCompatibilityProfile = {
 	readonly id: string;
 	readonly status: ProfileStatus;
 	readonly source: string;
+	readonly evidence: ProfileEvidence;
 	readonly release: ApplicationRelease;
 	/** Lowest Android API level that can install the release. */
 	readonly minimumAndroidSdk: number;
@@ -69,9 +86,20 @@ export type InstagramCompatibilityProfile = ApplicationCompatibilityProfile & {
 };
 
 /**
- * Captured from the Android app by instagrapi's maintainer, who reported live
- * login, reads and publishes on it (subzeroid/instagrapi#2812). Not verified
- * from an official APK; see docs/compatibility-profile.md.
+ * Current maintained-client default (subzeroid/instagrapi#2855): the runtime
+ * User-Agent build and API Bloks version of the current Android app, not its
+ * manifest versionCode. Not verified from an official APK.
+ */
+export const android449Release: ApplicationRelease = Object.freeze({
+	appVersion: '449.0.0.52.84',
+	appVersionCode: '1079242191',
+	bloksVersionId:
+		'799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b',
+});
+
+/**
+ * Historical: captured with reported live login (subzeroid/instagrapi#2812),
+ * later reproduced as needs_upgrade on fresh clients (#2807).
  */
 export const android448Release: ApplicationRelease = Object.freeze({
 	appVersion: '448.0.0.0.20',
@@ -82,6 +110,7 @@ export const android448Release: ApplicationRelease = Object.freeze({
 
 /** Releases whose three fields are evidenced as belonging together. */
 export const declaredReleases: readonly ApplicationRelease[] = Object.freeze([
+	android449Release,
 	android448Release,
 ]);
 
@@ -149,26 +178,53 @@ export function defineCompatibilityProfile(
 	return Object.freeze(profile);
 }
 
+/** Supported capabilities sent by the maintained client with both profiles. */
+const maintainedClientSupportedCapabilities: readonly SupportedCapability[] = [
+	{
+		name: 'SUPPORTED_SDK_VERSIONS',
+		value:
+			'119.0,120.0,121.0,122.0,123.0,124.0,125.0,126.0,127.0,128.0,129.0,130.0,131.0,132.0,133.0,134.0,135.0,136.0,137.0,138.0,139.0,140.0,141.0,142.0',
+	},
+	{name: 'FACE_TRACKER_VERSION', value: '14'},
+	{name: 'COMPRESSION', value: 'ETC2_COMPRESSION'},
+	{name: 'gyroscope', value: 'gyroscope_enabled'},
+];
+
 export const currentCompatibilityProfile = defineCompatibilityProfile({
-	id: 'android-448.0.0.0.20-pixel-8-pro',
+	id: 'android-449.0.0.52.84-pixel-8-pro',
 	status: 'selected',
 	source:
-		'instagrapi 3.0.24 (a3b7538) app profile 448.0.0.0.20 and device settings; build from Google factory images',
-	release: android448Release,
+		'instagrapi 3.0.24 (a3b7538) default app profile 449.0.0.52.84 and device settings; build from Google factory images',
+	evidence: {
+		summary: 'captured current Android profile (maintained-client default)',
+		offline: 'verified-coherent',
+		liveLogin: 'unverified',
+	},
+	release: android449Release,
 	// APK indexes list Android 9.0+ for every 293–450 build; not APK-verified.
 	minimumAndroidSdk: 28,
 	device: pixel8ProAndroid14,
 	...inheritedApplicationConstants,
-	supportedCapabilities: [
-		{
-			name: 'SUPPORTED_SDK_VERSIONS',
-			value:
-				'119.0,120.0,121.0,122.0,123.0,124.0,125.0,126.0,127.0,128.0,129.0,130.0,131.0,132.0,133.0,134.0,135.0,136.0,137.0,138.0,139.0,140.0,141.0,142.0',
-		},
-		{name: 'FACE_TRACKER_VERSION', value: '14'},
-		{name: 'COMPRESSION', value: 'ETC2_COMPRESSION'},
-		{name: 'gyroscope', value: 'gyroscope_enabled'},
-	],
+	supportedCapabilities: maintainedClientSupportedCapabilities,
+});
+
+/** The M2 first selection, kept as evidence. Never used for new accounts. */
+export const android448HistoricalProfile = defineCompatibilityProfile({
+	id: 'android-448.0.0.0.20-pixel-8-pro',
+	status: 'historical-reference',
+	source:
+		'instagrapi 3.0.24 (a3b7538) app profile 448.0.0.0.20 and device settings; build from Google factory images',
+	evidence: {
+		summary:
+			'captured Android profile; reported live login, later fresh-client needs_upgrade',
+		offline: 'verified-coherent',
+		liveLogin: 'historical-success-later-failing',
+	},
+	release: android448Release,
+	minimumAndroidSdk: 28,
+	device: pixel8ProAndroid14,
+	...inheritedApplicationConstants,
+	supportedCapabilities: maintainedClientSupportedCapabilities,
 });
 
 export function formatDeviceString(device: AndroidDeviceProfile): string {

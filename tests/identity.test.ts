@@ -113,10 +113,10 @@ for (const alias of ['insta-cli', 'instagram-cli']) {
 				t.true(
 					stdout.includes(`Instagram-CLI (insta-cli): v${packageJson.version}`),
 				);
-				t.true(stdout.includes('Instagram app version: 448.0.0.0.20'));
+				t.true(stdout.includes('Instagram app version: 449.0.0.52.84'));
 				t.true(
 					stdout.includes(
-						'Compatibility profile: android-448.0.0.0.20-pixel-8-pro',
+						'Compatibility profile: android-449.0.0.52.84-pixel-8-pro',
 					),
 				);
 			}

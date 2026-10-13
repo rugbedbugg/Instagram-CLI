@@ -87,10 +87,10 @@ for (const name of Object.keys(paths) as Array<keyof typeof paths>) {
 // Independent literals for the selected profile; see profile.test.ts.
 const selectedHeaders: Record<string, string> = {
 	'user-agent':
-		'Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)',
+		'Instagram 449.0.0.52.84 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1079242191)',
 	'x-ig-app-id': '567067343352427',
 	'x-bloks-version-id':
-		'0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432',
+		'799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b',
 	'x-ig-capabilities': '3brTv10=',
 };
 const legacyMarkers = [

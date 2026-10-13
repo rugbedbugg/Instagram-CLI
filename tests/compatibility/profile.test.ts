@@ -1,7 +1,9 @@
 import test from 'ava';
 import {IgApiClientExt} from 'instagram_mqtt';
 import {
+	android448HistoricalProfile as historical448,
 	android448Release,
+	android449Release,
 	currentCompatibilityProfile as profile,
 	declaredReleases,
 	defineCompatibilityProfile,
@@ -30,12 +32,12 @@ import {
 
 // Independent literals: a profile update must change these deliberately.
 const selected = {
-	id: 'android-448.0.0.0.20-pixel-8-pro',
+	id: 'android-449.0.0.52.84-pixel-8-pro',
 	release: {
-		appVersion: '448.0.0.0.20',
-		appVersionCode: '1065560286',
+		appVersion: '449.0.0.52.84',
+		appVersionCode: '1079242191',
 		bloksVersionId:
-			'0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432',
+			'799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b',
 	},
 	device: {
 		androidSdk: 34,
@@ -49,7 +51,7 @@ const selected = {
 		build: 'AP2A.240905.003',
 	},
 	appUserAgent:
-		'Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)',
+		'Instagram 449.0.0.52.84 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1079242191)',
 	supportedCapabilities: [
 		{
 			name: 'SUPPORTED_SDK_VERSIONS',
@@ -117,6 +119,11 @@ test('the selected profile is exactly the evidenced modern Android identity', t 
 	t.is(profile.id, selected.id);
 	t.is(profile.status, 'selected');
 	t.true(profile.source.includes('instagrapi 3.0.24 (a3b7538)'));
+	t.deepEqual(profile.evidence, {
+		summary: 'captured current Android profile (maintained-client default)',
+		offline: 'verified-coherent',
+		liveLogin: 'unverified',
+	});
 	t.deepEqual({...profile.release}, selected.release);
 	t.deepEqual({...profile.device}, selected.device);
 	t.deepEqual(profile.supportedCapabilities, selected.supportedCapabilities);
@@ -133,23 +140,51 @@ test('the selected profile is exactly the evidenced modern Android identity', t 
 	t.deepEqual(ig.state.supportedCapabilities, selected.supportedCapabilities);
 });
 
+test('the historical 448 profile remains reproducible but is never the default', t => {
+	t.is(historical448.status, 'historical-reference');
+	t.is(historical448.evidence.liveLogin, 'historical-success-later-failing');
+	t.deepEqual(
+		{...historical448.release},
+		{
+			appVersion: '448.0.0.0.20',
+			appVersionCode: '1065560286',
+			bloksVersionId:
+				'0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432',
+		},
+	);
+	t.is(historical448.device, profile.device);
+	const ig = fixtureClient(historical448);
+	t.is(
+		ig.state.appUserAgent,
+		'Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)',
+	);
+	t.is(ig.state.bloksVersionId, historical448.release.bloksVersionId);
+	t.not(profile.release, historical448.release);
+	t.not(profile.id, historical448.id);
+	t.is(legacy.evidence.liveLogin, 'known-failing');
+	t.is(legacy.evidence.offline, 'inconsistent');
+});
+
 test('app version, version code and Bloks version belong to one declared release', t => {
-	t.is(profile.release, android448Release);
+	t.is(profile.release, android449Release);
 	t.true(Object.isFrozen(profile.release));
 	t.true(Object.isFrozen(profile.device));
-	t.deepEqual(declaredReleases, [android448Release]);
+	t.deepEqual(declaredReleases, [android449Release, android448Release]);
 	t.true(isDeclaredRelease({...profile.release}));
 	t.false(isDeclaredRelease(legacyInheritedRelease));
 	for (const mixed of [
 		{
-			...android448Release,
+			...android449Release,
 			bloksVersionId: legacyInheritedRelease.bloksVersionId,
 		},
+		{...android449Release, bloksVersionId: android448Release.bloksVersionId},
+		{...android449Release, appVersionCode: android448Release.appVersionCode},
+		{...android448Release, bloksVersionId: android449Release.bloksVersionId},
 		{
-			...android448Release,
+			...android449Release,
 			appVersionCode: legacyInheritedRelease.appVersionCode,
 		},
-		{...legacyInheritedRelease, appVersion: android448Release.appVersion},
+		{...legacyInheritedRelease, appVersion: android449Release.appVersion},
 	]) {
 		t.false(isDeclaredRelease(mixed));
 		t.throws(() => defineCompatibilityProfile({...profile, release: mixed}), {
@@ -200,7 +235,7 @@ test('legacy inherited and selected profiles differ exactly in release, capabili
 	);
 });
 
-test('new accounts never regress to 416, the Android 6–8 pool, or the old Bloks pairing', t => {
+test('new accounts never regress to 416 or 448, the Android 6–8 pool, or an old Bloks pairing', t => {
 	const legacyDevices = new Set(
 		legacy.devices.map(device => formatDeviceString(device)),
 	);
@@ -212,6 +247,10 @@ test('new accounts never regress to 416, the Android 6–8 pool, or the old Blok
 		t.false(ig.state.appVersion.startsWith('416.'));
 		t.not(ig.state.appVersionCode, legacyInheritedRelease.appVersionCode);
 		t.not(ig.state.bloksVersionId, legacyInheritedRelease.bloksVersionId);
+		t.false(ig.state.appVersion.startsWith('448.'));
+		t.not(ig.state.appVersionCode, android448Release.appVersionCode);
+		t.not(ig.state.bloksVersionId, android448Release.bloksVersionId);
+		t.is(ig.state.appVersion, android449Release.appVersion);
 		t.is(ig.state.deviceString, formatDeviceString(pixel8ProAndroid14));
 		t.is(ig.state.build, pixel8ProAndroid14.build);
 		t.false(legacyDevices.has(ig.state.deviceString));
