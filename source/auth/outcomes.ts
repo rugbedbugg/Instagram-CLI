@@ -13,6 +13,10 @@ import {
 	IgSentryBlockError,
 	IgUserHasLoggedOutError,
 } from 'instagram-private-api';
+import {
+	classifyTlsFailure,
+	type TlsFailure,
+} from '../security/transport-trust.js';
 import type {SessionMaterialCheck} from './authorization.js';
 
 /** Methods the existing 2FA endpoint accepts: TOTP ('0') or SMS ('1'). */
@@ -57,6 +61,7 @@ export type AuthenticationOutcome =
 	| {readonly kind: 'rate-limited'}
 	| {readonly kind: 'session-expired'}
 	| {readonly kind: 'network-error'}
+	| {readonly kind: 'untrusted-connection'; readonly reason: TlsFailure}
 	| {readonly kind: 'unsupported-challenge'; readonly step: string | undefined}
 	| {
 			readonly kind: 'incompatible-response';
@@ -116,6 +121,7 @@ export function nextAuthenticationStep(
 
 		case 'rate-limited':
 		case 'network-error':
+		case 'untrusted-connection':
 		case 'unsupported-challenge':
 		case 'account-restricted':
 		case 'failed': {
@@ -244,8 +250,15 @@ export function classifyAuthenticationError(
 	if (error instanceof IgNetworkError) {
 		// The dependency wraps an unparseable success body the same way as a
 		// transport failure; the wrapped error's name tells them apart.
-		return error.name === 'TransformError'
-			? {kind: 'incompatible-response', reason: 'malformed-response'}
+		if (error.name === 'TransformError') {
+			return {kind: 'incompatible-response', reason: 'malformed-response'};
+		}
+
+		// A refused certificate is not an outage: the peer may be impersonating
+		// Instagram, so it is reported separately and never treated as offline.
+		const tlsFailure = classifyTlsFailure(error);
+		return tlsFailure
+			? {kind: 'untrusted-connection', reason: tlsFailure}
 			: {kind: 'network-error'};
 	}
 
@@ -344,6 +357,16 @@ export function describeAuthenticationOutcome(
 
 		case 'network-error': {
 			return 'Could not reach Instagram (network failure). Any saved session was kept.';
+		}
+
+		case 'untrusted-connection': {
+			return `The connection to Instagram was refused because its TLS certificate could not be verified (${
+				outcome.reason === 'hostname'
+					? 'it names a different host'
+					: outcome.reason === 'certificate'
+						? 'untrusted certificate'
+						: 'handshake failed'
+			}). Nothing was sent and any saved session was kept. Check your network or proxy; certificate verification is never disabled.`;
 		}
 
 		case 'unsupported-challenge': {

@@ -1,6 +1,7 @@
 import Chance from 'chance';
 import type {IgApiClient} from 'instagram-private-api';
 import {IgApiClientExt, type RealtimeClientInitOptions} from 'instagram_mqtt';
+import {assertTransportTrust} from '../security/transport-trust.js';
 import {
 	currentCompatibilityProfile,
 	formatDeviceString,
@@ -46,6 +47,8 @@ export function applyCompatibilityProfile(
 export function createInstagramApiClient(
 	profile: ApplicationCompatibilityProfile = currentCompatibilityProfile,
 ): IgApiClientExt {
+	// No client exists, so nothing can be sent, unless TLS verification holds.
+	assertTransportTrust();
 	const ig = new IgApiClientExt();
 	applyCompatibilityProfile(ig, profile);
 	ig.state.language = profile.defaultLanguage;

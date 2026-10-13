@@ -1,3 +1,15 @@
+diff --git a/node_modules/instagram-private-api/dist/core/request.js b/node_modules/instagram-private-api/dist/core/request.js
+index f68f184..c6005e0 100644
+--- a/node_modules/instagram-private-api/dist/core/request.js
++++ b/node_modules/instagram-private-api/dist/core/request.js
+@@ -39,7 +39,6 @@ class Request {
+             simple: false,
+             transform: Request.requestTransform,
+             jar: this.client.state.cookieJar,
+-            strictSSL: false,
+             gzip: true,
+             headers: this.getDefaultHeaders(),
+             method: 'GET',
 diff --git a/node_modules/instagram-private-api/dist/entities/direct-thread.entity.d.ts b/node_modules/instagram-private-api/dist/entities/direct-thread.entity.d.ts
 index 93eb781..2cadf27 100644
 --- a/node_modules/instagram-private-api/dist/entities/direct-thread.entity.d.ts

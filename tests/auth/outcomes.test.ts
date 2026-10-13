@@ -216,6 +216,7 @@ const everyOutcome: Record<AuthenticationOutcomeKind, AuthenticationOutcome> = {
 	'rate-limited': {kind: 'rate-limited'},
 	'session-expired': {kind: 'session-expired'},
 	'network-error': {kind: 'network-error'},
+	'untrusted-connection': {kind: 'untrusted-connection', reason: 'hostname'},
 	'unsupported-challenge': {
 		kind: 'unsupported-challenge',
 		step: 'submit_phone',
