@@ -147,6 +147,36 @@ test('a transport failure is a network error, an unparseable body is not', t => 
 	});
 });
 
+test('a refused certificate is an untrusted connection, not an outage', t => {
+	const failure = (code: string) =>
+		new IgNetworkError(
+			Object.assign(new Error('synthetic TLS failure'), {
+				name: 'RequestError',
+				cause: Object.assign(new Error('synthetic'), {code}),
+			}),
+		);
+	for (const [code, reason] of [
+		['DEPTH_ZERO_SELF_SIGNED_CERT', 'certificate'],
+		['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'certificate'],
+		['CERT_HAS_EXPIRED', 'certificate'],
+		['ERR_TLS_CERT_ALTNAME_INVALID', 'hostname'],
+		['ERR_SSL_WRONG_VERSION_NUMBER', 'handshake'],
+	]) {
+		t.deepEqual(classifyAuthenticationError(failure(code!)), {
+			kind: 'untrusted-connection',
+			reason,
+		});
+	}
+
+	t.deepEqual(classifyAuthenticationError(failure('ECONNREFUSED')), {
+		kind: 'network-error',
+	});
+	t.is(
+		nextAuthenticationStep({kind: 'untrusted-connection', reason: 'hostname'}),
+		'stop',
+	);
+});
+
 test('challenge errors and unknown errors stay typed', t => {
 	t.deepEqual(
 		classifyAuthenticationError(new IgChallengeWrongCodeError('wrong')),
