@@ -125,7 +125,7 @@ Login-related config keys:
 ## Edge Cases
 
 - **Session expired**: Reported, file kept; the form is shown for credential login
-- **Instagram unreachable**: The saved session is restored but unverified
+- **Instagram unreachable**: The saved session is restored but unverified, and is not rewritten during that run
 - **2FA method detection**: TOTP vs SMS based on `totp_two_factor_on`
 - **Wrong challenge code**: The user may enter the code again; nothing is resent automatically
 - **Repeated Enter**: Refused while a step runs, so nothing is submitted twice

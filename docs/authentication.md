@@ -89,10 +89,17 @@ client never takes that step itself.
   For a password login, the response must also name the logged-in user, and that
   user must match the session's account. 2FA and challenge responses are checked
   against the user only when they include one.
+- **Cookies alone are not authentication.** The dependency resolves a login,
+  2FA or challenge request only when the body has `status: ok`; anything else is
+  an error outcome however many cookies the response set. A challenge also has
+  to close (`action: close`, which clears the checkpoint). This is at least as
+  strict as instagrapi `a3b7538`, which accepts a 2FA reply on success and a
+  login after a challenge once it holds a user ID.
 - **Restored is not validated.** `loginBySession()` restores the file, then
   sends the request the post-login flow already started with (reels tray, cold
   start). Success gives `session-validated`. A transport failure gives
-  `session-restored-unverified`, and the post-login requests are not repeated.
+  `session-restored-unverified`: the post-login requests are not repeated, and
+  that client never writes the session.
   A `login_required` response gives `session-expired`. Any other failure
   surfaces as its own outcome.
 - **A network error is not expiry**, and **a rejected password does not touch
@@ -129,7 +136,7 @@ client never takes that step itself.
 | `login()` / `loginBySession()` starts                 | deactivated, after flushing any due save                |
 | password, 2FA or challenge step establishes material  | activated, then one immediate save                      |
 | restored session validated                            | activated, then one immediate save                      |
-| restored session unverified                           | activated; no immediate save                            |
+| restored session unverified                           | not activated; nothing is written in that run           |
 | a response completes while active                     | one coalesced save, deferred past `error$`              |
 | `login_required` / `user_has_logged_out` while active | suspended; the file is kept                             |
 | `logout()` of this client's account                   | deactivated and pending writes awaited, before deletion |
@@ -142,6 +149,10 @@ most one subscription to each stream, and logout returns to zero
 The dependency emits `end$` and then `error$` on consecutive ticks for the same
 response. Response-driven saves run on `setImmediate`, after both, so a response
 that ends the session is never written.
+
+An unverified restore leaves persistence off because `end$` carries no response,
+so no later completion can show that Instagram accepted the session. The last
+saved state therefore stays as it was until a later run validates it.
 
 ### Coalescing
 
@@ -170,7 +181,12 @@ caller's `save()` resolves only after a write that began after the call.
 Every save, load and delete for one account path runs through a process-wide
 queue in call order, across `SessionManager` instances. A load therefore sees
 every earlier save, and a delete cannot be undone by a save requested before
-it. Other processes see either the old file or the new one.
+it. `cleanupSessions()` deletes each account through
+`SessionManager.deleteSession()`, so it is ordered the same way. A delete also
+removes temporary files that an interrupted write left behind. Other processes
+see either the old file or the new one, but the queue does not order operations
+across processes: a still-running authenticated instance writes again on its
+next response.
 
 The format is unchanged: the same `session.ts.json` path under
 `advanced.usersDir`, the same JSON fields, and `~/.instagram-cli` and
@@ -213,11 +229,35 @@ saved file, under the precedence rules in
 
 ## 8. Separately discovered defects (not changed here)
 
-1. **TLS verification is disabled in the dependency.** `Request.send()` in
-   `instagram-private-api` passes `strictSSL: false` ahead of `request.defaults`,
-   so every REST request skips certificate verification. Fixing it means
-   changing the HTTP transport, which was out of scope here. It should be
-   repaired before any live validation.
+1. **TLS certificate verification is disabled for every REST request.** This is
+   the first M3b task, and no live request may be made until it is fixed.
+   - **Call site:** `Request.send()` in
+     `node_modules/instagram-private-api/dist/core/request.js:42` (1.46.1) builds
+     its options with
+     `defaultsDeep(userOptions, {…, strictSSL: false, …}, this.defaults)`.
+   - **Effect:** `request` turns `strictSSL: false` into
+     `rejectUnauthorized: false` (`request/request.js:254` and `:606`), and the
+     HTTPS proxy tunnel receives the same setting (`request/lib/tunnel.js:84`).
+     An offline probe through a recording transport saw
+     `rejectUnauthorized: false` on the request.
+   - **Scope:** every repository call goes through `Request.send()`: login,
+     2FA, challenge, feeds, direct messages and uploads. Not affected: MQTT
+     (`mqtts` `TlsTransport` calls `tls.connect` with Node's default
+     verification, and Instagram-CLI passes no TLS options), Instagram-CLI's own
+     `fetch()` downloads, and the unused `MediaEntity.oembed()`.
+   - **No safe override from Instagram-CLI's code:** `defaultsDeep` lets the
+     earlier source win, so `ig.request.defaults.strictSSL` and
+     `.rejectUnauthorized` are ignored (confirmed by the probe). Only
+     `userOptions` would win, and the repositories build those internally.
+     Injecting them would mean wrapping `send()` for every call.
+   - **Smallest fix:** delete the `strictSSL: false` entry with a new hunk in the
+     existing `patches/instagram-private-api+1.46.1.patch`. Node's default
+     certificate and hostname verification then applies. No transport is
+     replaced. Pair it with an offline harness test asserting that no request,
+     including one through a proxy, reaches the transport with
+     `rejectUnauthorized: false`.
+   - **Offline impact:** none. Tests replace the transport and never negotiate
+     TLS.
 2. **Debug logging captures API bodies.** The logger enables `ig:*` by default
    and writes dependency debug output to the log file. That output includes
    failed response bodies and the 2FA `two_factor_info`. AGENTS.md asks for that
@@ -228,8 +268,15 @@ saved file, under the precedence rules in
    such an error would expose them.
 4. **`ConfigManager` writes `config.ts.yaml` non-atomically.**
 5. **A hard crash mid-save** can leave an owner-only temporary file beside the
-   session. It never replaces the session. `cleanupSessions()` deletes session
-   files directly, outside the write queue.
+   session. It never replaces the session, and the next delete for that account
+   (`logout` or `cleanupSessions()`) removes it. Before the M3a review,
+   `cleanupSessions()` deleted files outside the write queue: a write already in
+   progress could recreate a session after cleanup reported success, and cleanup
+   left temporary files behind. Both are fixed and covered by tests.
+6. **A network failure while submitting a challenge code surfaces as
+   `failed/unexpected-error`,** not `network-error`. The dependency's
+   `sendSecurityCode()` reads `error.response.statusCode` from an
+   `IgNetworkError`, which has no response. Nothing is written.
 
 ## 9. Requirements for future live validation
 
@@ -258,8 +305,8 @@ Live validation needs explicit, separate authorization. Before it:
 | ------------------------------------------------------------- | -------------------------------------- |
 | Original overwrite defect, restore safety, subscription count | `tests/auth/session-overwrite.test.ts` |
 | Classification, messages, coordinator rules                   | `tests/auth/outcomes.test.ts`          |
-| End-to-end scenarios through the real client                  | `tests/auth/lifecycle.test.ts`         |
-| Atomic writes, interruption, concurrency                      | `tests/session.test.ts`                |
+| End-to-end scenarios, cookies without evidence                | `tests/auth/lifecycle.test.ts`         |
+| Atomic writes, interruption, concurrency, cleanup ordering    | `tests/session.test.ts`                |
 
 `tests/auth/_offline-instagram.ts` replaces only the socket layer beneath the
 `request` library, so the dependency's signing, cookie jar, parsing, events and
