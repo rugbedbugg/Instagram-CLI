@@ -41,6 +41,8 @@ export type ApplicationCompatibilityProfile = {
 	readonly status: ProfileStatus;
 	readonly source: string;
 	readonly release: ApplicationRelease;
+	/** Lowest Android API level that can install the release. */
+	readonly minimumAndroidSdk: number;
 	readonly appId: string;
 	readonly capabilities: string;
 	readonly webChromeVersion: string;
@@ -138,6 +140,12 @@ export function defineCompatibilityProfile(
 		);
 	}
 
+	if (profile.device.androidSdk < profile.minimumAndroidSdk) {
+		throw new Error(
+			`Profile ${profile.id} pairs its release with a device that cannot install it`,
+		);
+	}
+
 	return Object.freeze(profile);
 }
 
@@ -147,6 +155,8 @@ export const currentCompatibilityProfile = defineCompatibilityProfile({
 	source:
 		'instagrapi 3.0.24 (a3b7538) app profile 448.0.0.0.20 and device settings; build from Google factory images',
 	release: android448Release,
+	// APK indexes list Android 9.0+ for every 293–450 build; not APK-verified.
+	minimumAndroidSdk: 28,
 	device: pixel8ProAndroid14,
 	...inheritedApplicationConstants,
 	supportedCapabilities: [

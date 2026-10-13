@@ -30,6 +30,8 @@ export const legacyInheritedProfile: LegacyInheritedProfile = Object.freeze({
 	source:
 		'instagram-private-api 1.46.1 samples and constants with the removed version patch (M1 baseline)',
 	release: legacyInheritedRelease,
+	// Indexed 4xx builds require Android 9+, above its own SDK 23–27 pool.
+	minimumAndroidSdk: 28,
 	...inheritedApplicationConstants,
 	supportedCapabilities: data.supportedCapabilities,
 	devices: data.devices,

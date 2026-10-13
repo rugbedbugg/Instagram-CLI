@@ -17,7 +17,12 @@ export function compatibilityReport(
 	return {
 		project: 'Instagram-CLI',
 		liveValidation: 'not performed',
-		profile: {id: profile.id, status: profile.status, source: profile.source},
+		profile: {
+			id: profile.id,
+			status: profile.status,
+			source: profile.source,
+			minimumAndroidSdk: profile.minimumAndroidSdk,
+		},
 		application: {
 			version: state.appVersion,
 			versionCode: state.appVersionCode,
@@ -36,6 +41,8 @@ export function compatibilityReport(
 			codename,
 			cpu,
 			build: state.build,
+			// A retained legacy device may predate the selected app's minimum.
+			meetsAppMinimum: Number(androidSdk) >= profile.minimumAndroidSdk,
 		},
 		locale: state.language,
 		rest: {appId: state.fbAnalyticsApplicationId},
@@ -81,6 +88,10 @@ export function formatCompatibilityReport(report: CompatibilityReport): string {
 		[
 			'Device',
 			`${device.manufacturer} ${device.model} (${device.codename}; ${device.cpu}; ${device.dpi}; ${device.resolution}; build ${device.build})`,
+		],
+		[
+			'App minimum',
+			`SDK ${profile.minimumAndroidSdk} (${device.meetsAppMinimum ? 'met' : 'not met by this device'})`,
 		],
 		['REST app ID', rest.appId],
 		['REST capabilities', application.capabilities],

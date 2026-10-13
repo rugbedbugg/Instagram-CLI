@@ -132,6 +132,7 @@ test('an M1 saved session keeps its hardware and identifiers while the profile r
 	const {device, ...application} = report.matchesSelectedProfile;
 	t.true(Object.values(application).every(Boolean));
 	t.false(device, 'Existing hardware is reported, not silently migrated');
+	t.false(report.device.meetsAppMinimum);
 	await manager.deleteSession();
 });
 

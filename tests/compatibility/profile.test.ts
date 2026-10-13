@@ -251,6 +251,20 @@ test('new-account identifiers are stable per username and independent of the app
 
 test('the device template is internally plausible', t => {
 	const {device} = profile;
+	t.is(profile.minimumAndroidSdk, 28);
+	t.true(device.androidSdk >= profile.minimumAndroidSdk);
+	t.true(
+		legacy.devices.every(old => old.androidSdk < profile.minimumAndroidSdk),
+		'No M1 pool device can install the selected release',
+	);
+	t.throws(
+		() =>
+			defineCompatibilityProfile({
+				...profile,
+				device: {...device, androidSdk: 27, androidRelease: '8.1.0'},
+			}),
+		{message: /cannot install/},
+	);
 	// Android 14 is API level 34; Pixel 8 Pro is 1344x2992 at 489 ppi (xxhdpi).
 	t.is(device.androidSdk, 34);
 	t.is(device.androidRelease, '14');
