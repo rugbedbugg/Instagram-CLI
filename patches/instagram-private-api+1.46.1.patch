@@ -85,3 +85,18 @@ index 42ec5a0..2a26afe 100644
          });
      }
      async broadcastReel(options) {
+diff --git a/node_modules/instagram-private-api/dist/errors/ig-network.error.js b/node_modules/instagram-private-api/dist/errors/ig-network.error.js
+index 156c009..cc4740a 100644
+--- a/node_modules/instagram-private-api/dist/errors/ig-network.error.js
++++ b/node_modules/instagram-private-api/dist/errors/ig-network.error.js
+@@ -6,6 +6,10 @@ class IgNetworkError extends ig_client_error_1.IgClientError {
+     constructor(e) {
+         super();
+         Object.assign(this, e);
++        // The request options carry the signed form, the cookie jar and the
++        // Authorization header; a response carries the request again.
++        delete this.options;
++        delete this.response;
+     }
+ }
+ exports.IgNetworkError = IgNetworkError;

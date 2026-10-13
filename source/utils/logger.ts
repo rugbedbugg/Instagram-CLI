@@ -4,6 +4,12 @@ import process from 'node:process';
 import nodeUtil from 'node:util';
 import debugModule from 'debug';
 import {ConfigManager, resolveDataDir} from '../config.js';
+import {safeDebugLine} from '../security/debug-diagnostics.js';
+import {
+	describeErrorForLog,
+	redactText,
+	redactValue,
+} from '../security/redaction.js';
 
 type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
@@ -23,7 +29,7 @@ class Logger {
 	private readonly sessionId: string;
 	private readonly logBuffer: LogEntry[] = [];
 	private isInitialized = false;
-	private debugHookInstalled = false;
+	private writes: Promise<void> = Promise.resolve();
 
 	constructor() {
 		// Initialize with default path; will be updated in initialize()
@@ -51,11 +57,11 @@ class Logger {
 				);
 			}
 
-			await fs.promises.mkdir(this.logsDir, {recursive: true});
+			// Owner-only when created here; an existing directory is left as is.
+			await fs.promises.mkdir(this.logsDir, {recursive: true, mode: 0o700});
 			this.isInitialized = true;
 
-			// Install debug library hook to redirect output to log file
-			this.installDebugHook();
+			enableDependencyDiagnostics();
 
 			// Log initialization
 			this.info('Logger initialized', 'Logger');
@@ -63,12 +69,14 @@ class Logger {
 	}
 
 	error(message: string, context?: string, error?: Error | unknown): void {
+		// Errors become allowlisted diagnostics; other values are reduced by key
+		// first. Request options, responses and bodies are never serialized.
 		const stack =
-			error instanceof Error
-				? error.stack
-				: error
-					? JSON.stringify(error)
-					: undefined;
+			error === undefined
+				? undefined
+				: error instanceof Error
+					? describeErrorForLog(error)
+					: JSON.stringify(redactValue(error));
 		const entry = this.createLogEntry('error', message, context, stack);
 		this.logBuffer.push(entry);
 		if (this.logBuffer.length > Logger.MAX_BUFFER_SIZE) {
@@ -124,50 +132,9 @@ class Logger {
 		return [...this.logBuffer];
 	}
 
+	/** Resolves once every entry logged so far has been written. */
 	async flush(): Promise<void> {
-		// All writes are already async, so this is mainly for cleanup
-		// Can be used to ensure all pending writes are complete
-	}
-
-	/**
-	 * Installs a hook to redirect debug library output to the log file.
-	 * This ensures that API logs from instagram-private-api are captured.
-	 */
-	private installDebugHook(): void {
-		if (this.debugHookInstalled) {
-			return;
-		}
-
-		try {
-			// Override the debug library's log function to write to our log file
-			// instead of stderr. This captures all debug output including ig:* namespaces
-			debugModule.log = (...args: any[]) => {
-				this.debug(
-					nodeUtil.formatWithOptions(
-						// @ts-expect-error Monkey patching
-						debugModule.inspectOpts,
-						// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-						...args,
-					) + '\n',
-				);
-			};
-
-			// Enable debug output for instagram API if DEBUG env var is set
-			// Or enable it by default for better logging coverage
-			const debugEnv = process.env['DEBUG'];
-			if (debugEnv) {
-				debugModule.enable(debugEnv);
-			} else {
-				// Enable all ig:* namespaces by default for comprehensive API logging
-				debugModule.enable('ig:*');
-			}
-
-			this.debugHookInstalled = true;
-		} catch {
-			// If debug module is not available, just continue without it
-			// This is a graceful fallback
-			this.warn('Failed to install debug hook, API logging disabled', 'Logger');
-		}
+		await this.writes;
 	}
 
 	private generateSessionId(): string {
@@ -200,12 +167,19 @@ class Logger {
 			return;
 		}
 
-		try {
-			const formatted = this.formatLogEntry(entry);
-			await fs.promises.appendFile(this.logFilePath, `${formatted}\n`, 'utf8');
-		} catch {
-			// Silently fail if we can't write to file
-		}
+		const formatted = this.formatLogEntry(entry);
+		// In order, and owner-only when the file is created.
+		this.writes = this.writes.then(async () => {
+			try {
+				await fs.promises.appendFile(this.logFilePath, `${formatted}\n`, {
+					encoding: 'utf8',
+					mode: 0o600,
+				});
+			} catch {
+				// Silently fail if we can't write to file
+			}
+		});
+		await this.writes;
 	}
 
 	private createLogEntry(
@@ -214,14 +188,44 @@ class Logger {
 		context?: string,
 		stack?: string,
 	): LogEntry {
+		// Every entry passes the central text redaction, whatever its source.
 		return {
 			level,
 			timestamp: new Date().toISOString(),
-			message,
+			message: redactText(message),
 			context,
-			stack,
+			stack: stack === undefined ? undefined : redactText(stack),
 		};
 	}
+}
+
+type DebugInstance = {readonly namespace?: string};
+
+/**
+ * Route dependency debug output (instagram-private-api, instagram_mqtt, mqtts)
+ * through the reviewed diagnostics allowlist into the log file, never stderr.
+ * Installed when this module loads, before any client exists, and applied to
+ * every namespace, so enabling more namespaces through DEBUG cannot bypass it.
+ */
+function installDependencyDiagnostics(): void {
+	// The namespace prefix and colors are not wanted in the log file.
+	debugModule.formatArgs = () => undefined;
+	debugModule.log = function (this: DebugInstance, ...args: unknown[]) {
+		getLogger().debug(
+			safeDebugLine(this.namespace, nodeUtil.format(...args)),
+			'Dependency',
+		);
+	};
+}
+
+installDependencyDiagnostics();
+
+/** Enable the dependency namespaces that are logged (DEBUG overrides). */
+function enableDependencyDiagnostics(): void {
+	const requested = process.env['DEBUG'];
+	debugModule.enable(
+		requested === undefined || requested === '' ? 'ig:*' : requested,
+	);
 }
 
 // Singleton instance

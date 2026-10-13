@@ -92,6 +92,13 @@ function loggedInUserOf(body: unknown): unknown {
 		: undefined;
 }
 
+/** A realtime event label that is a plain identifier, for diagnostics. */
+function mqttEventKind(value: unknown): string {
+	return typeof value === 'string' && /^\w{1,64}$/.test(value)
+		? value
+		: 'unlabelled';
+}
+
 // eslint-disable-next-line unicorn/prefer-event-target
 export class InstagramClient extends EventEmitter {
 	public static async cleanupSessions(): Promise<void> {
@@ -1191,7 +1198,10 @@ export class InstagramClient extends EventEmitter {
 		});
 
 		this.realtime.on('message', (wrapper: any) => {
-			this.logger.debug(`Received MQTT "message": ${JSON.stringify(wrapper)}`);
+			// Event shape only: message payloads hold private content.
+			this.logger.debug(
+				`Received MQTT message (${mqttEventKind(wrapper?.delta_type)}, ${mqttEventKind(wrapper?.message?.op)})`,
+			);
 			// Handle reaction events
 			if (
 				wrapper.delta_type === 'deltaCreateReaction' &&
