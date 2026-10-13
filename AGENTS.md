@@ -23,7 +23,7 @@ This documentation provides context for AI coding tools like VSCode, Cursor, Gem
 - Maintain `ClientContext` boundaries, inject dependencies into hooks (`useStories`, etc.) for testability, and call `InstagramClient.shutdown()` when tearing down realtime sessions.
 - Keep ESM imports with explicit `.js` extensions; mirror existing logging setup via `initializeLogger()` and `createContextualLogger`.
 - API work lives in `source/client.ts` plus helpers like `utils/message-parser.ts`; extend these surfaces rather than scattering raw API calls.
-- Client identity lives in `source/compatibility/`; use its factory, device generator, and realtime options. Read `docs/compatibility-profile.md` before changing fingerprint or session precedence. Do not restore version constants in dependency patches.
+- Client identity lives in `source/compatibility/`; use its factory, device template, session restore (`restoreCompatibilitySession`), and realtime options; never call `state.deserialize()` directly. Read `docs/compatibility-profile.md` before changing fingerprint or session precedence. Do not restore version constants in dependency patches.
 - Place stateless Ink pieces in `ui/components`, orchestration in `ui/views`, and derived state in `ui/hooks`; reuse existing visual patterns (gradients, status bars) for consistency.
 - When working with existing components and systems, first check their design description in `docs/`
 - Use linter exceptions (`eslint-disable-next-line`) sparingly; prefer fixing the underlying issue. If a disable is unavoidable, scope it to the narrowest region (single line when possible) and add a brief justification.

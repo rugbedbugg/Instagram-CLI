@@ -1,348 +1,422 @@
 # Instagram compatibility profile
 
-Instagram-CLI owns the identity it asks its dependencies to present. The first-party
-profile makes that identity reviewable and testable before attempting protocol
-repairs. **This baseline is not claimed to work against live Instagram.** No app
-version, device generation, authentication flow, or session format was modernized
-in this milestone.
+Instagram-CLI owns the identity it asks its dependencies to present. M1 extracted
+the inherited identity into first-party source. M2 replaced it with **one
+evidence-backed, internally coherent modern Android profile** and made that
+profile authoritative after session restore.
 
-## Baseline and evidence
+> **A coherent profile does not by itself prove that Instagram currently accepts
+> login.** Every M2 result is offline. No Instagram HTTP request, MQTT connection,
+> or login attempt was made. Server acceptance remains unverified.
 
-The extraction started from clean `main` at `8c64c21`, equal to `origin/main`, with
-successful TypeScript CI run `37909848496`. Node >=22 remains required; Node 22 and
-24 remain the supported validation matrix. Installed versions were
-`instagram-private-api` **1.46.1**, `instagram_mqtt` **1.2.3**, Pastel **4.0.1**,
-Chance **1.1.13**, and `mqtts` **1.5.0**. No resolved dependency versions changed.
-Chance and its existing types are now explicit dependencies because our source
-owns the device-generation sequence.
+| Question                             | Answer                                                               |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| Selected profile                     | `android-448.0.0.0.20-pixel-8-pro`                                   |
+| What a new account presents          | Instagram 448.0.0.0.20 (1065560286), Pixel 8 Pro on Android 14       |
+| What an existing saved account keeps | Its device, build and identifiers; only application fields change    |
+| Who decides application fields       | `currentCompatibilityProfile`, applied after every session restore   |
+| Is the M1 identity still available   | Yes, as `legacyInheritedProfile`, a test and documentation reference |
+| Recommended next step (M3)           | Implement CAA/Bloks login before any live test (see section 11)      |
 
-Before removing any constant patch, the installed libraries produced the fixtures
-in [`tests/compatibility/_fixtures/`](../tests/compatibility/_fixtures/):
+Source: [`profile.ts`](../source/compatibility/profile.ts),
+[`legacy-profile.ts`](../source/compatibility/legacy-profile.ts),
+[`client.ts`](../source/compatibility/client.ts),
+[`report.ts`](../source/compatibility/report.ts).
 
-- `compatibility-baseline.json`: effective values, MQTT application metadata, hashes
-  of ordered device/build samples and experiment strings, and a hash of 100
-  synthetic username-generated identities.
-- `rest-baseline.json`: shared identity headers and focused per-route method,
-  path, form fields, body fields, and launcher configuration hashes, captured
-  after the real URL-encoded form builder.
+## 1. M1 inherited profile (legacy reference)
 
-Fixtures contain only public compatibility constants and synthetic device inputs.
-They contain no real accounts, sessions, encrypted passwords, or credentials.
-Random/time-dependent fields are checked by shape and relationships, not snapshots.
+M1 preserved the effective identity of patched `instagram-private-api` 1.46.1.
+It now lives in `legacyInheritedProfile` and is never used to construct a new
+account. The M1 fixtures in
+[`tests/compatibility/_fixtures/`](../tests/compatibility/_fixtures/) are
+unchanged; tests prove the legacy reference still reproduces them byte for byte,
+including the 40-device pool and the 100-seed identity digest.
 
-| Surface                         | Preserved effective value                                                                           |
-| ------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Android app version             | `416.0.0.47.66`                                                                                     |
-| Version code                    | `382206157`                                                                                         |
-| Bloks version                   | `388ece79ebc0e70e87873505ed1b0ff335ae2868a978cc951b6721c41d46a30a`                                  |
-| REST and active realtime app ID | `567067343352427`                                                                                   |
-| REST and realtime capabilities  | `3brTv10=`                                                                                          |
-| Web UA Chrome component         | `131.0.6778.135`                                                                                    |
-| Signing                         | HMAC-SHA256, signature version `4`; same public inherited signing and breadcrumb keys               |
-| Default locale                  | `en_US`; `Accept-Language: en-US`                                                                   |
-| Device samples                  | 40 ordered Android devices; SDK 23–27, Android 6.0–8.1.0                                            |
-| Builds                          | 16 independently selected samples, including the duplicate `MRA58K`                                 |
-| Supported capabilities          | SDK list `13.0`–`66.0`, face tracker `12`, segmentation, ETC2 compression, world tracker, gyroscope |
-| Experiments                     | 814 general and 88 login entries, retaining their exact order and spelling                          |
-| Active MQTT client info         | client capabilities `183`, endpoint capabilities `0`, publish format `1`, stack `3`                 |
-| Active MQTT subscription topics | `88, 135, 149, 150, 133, 146`                                                                       |
+| Field                  | M1 inherited value                                                 |
+| ---------------------- | ------------------------------------------------------------------ |
+| App version            | `416.0.0.47.66`                                                    |
+| Version code           | `382206157`                                                        |
+| Bloks version          | `388ece79ebc0e70e87873505ed1b0ff335ae2868a978cc951b6721c41d46a30a` |
+| App ID                 | `567067343352427`                                                  |
+| Capabilities           | `3brTv10=`                                                         |
+| Devices                | 40 username-seeded samples, Android 6.0–8.1 (SDK 23–27)            |
+| Builds                 | 16 samples chosen independently of the device                      |
+| Supported capabilities | SDK list `13.0`–`66.0`, face tracker `12`, six entries             |
+| MQTT client info       | capabilities `183`, endpoint `0`, publish format `1`, stack `3`    |
 
-The supported-capability SDK list is a separate capability declaration; it is not
-the device's Android SDK level. The correspondence of app version, version code,
-Bloks hash, signing material, and experiments to a coherent official release is
-**unknown**. Passing these tests does not establish server acceptance.
+Its version/code came from a patch, while Bloks, signing, experiments and the
+supported capabilities came from a dependency whose own default was app 222.
+They were never evidenced as one build, and indexed 4xx builds require Android 9+
+while the pool is SDK 23–27. The M1 identity was therefore not coherent.
 
-## Dependency graph and ownership
+## 2. M2 research sources
 
-Before extraction:
+Retrieved 2026-10-13. Public repositories, APK metadata pages and vendor
+documentation only; no Instagram endpoint was contacted.
+
+| Source                                                                                                                                                                                                 | Version / commit                        | What it supports                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [instagrapi `config.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/config.py)                                                                   | 3.0.24, `a3b7538` (2026-10-13)          | App profiles 449/448/446/428/385/364 with paired version code and Bloks hash; Pixel 8 Pro device settings; supported capabilities; unused `LOGIN_EXPERIMENTS`                                                          |
+| [instagrapi `mixins/private.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/mixins/private.py)                                                   | `a3b7538`                               | REST headers: `X-IG-Capabilities: 3brTv10=`, app ID, `X-FB-HTTP-Engine: Tigon/MNS/TCP`, current header set                                                                                                             |
+| [instagrapi `utils/auth.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/utils/auth.py)                                                           | `a3b7538`                               | Signed bodies are sent as `signed_body=SIGNATURE.<json>` with no HMAC or key version                                                                                                                                   |
+| [instagrapi `realtime/client.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/realtime/client.py)                                                 | `a3b7538`                               | MQTT app ID `567067343352427`, client capabilities `183`, endpoint `0`, publish format `1`, stack `3`, same topics and `app_specific_info`                                                                             |
+| [instagrapi `mixins/auth.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/mixins/auth.py)                                                         | `a3b7538`                               | `login()` is CAA/Bloks first and calls legacy only on a server `CAA_LOGIN_FALLBACK`; `login_legacy()` tries CAA on `needs_upgrade`; saved app profiles are kept unless explicitly overridden                           |
+| [instagrapi CHANGELOG](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/CHANGELOG.md)                                                                             | 3.0.0–3.0.24                            | 3.0.0 (2026-09-13) made CAA the default login; 3.0.3 follows the CAA fallback instruction; 3.0.7 made 448 default; 3.0.20 made 449 default                                                                             |
+| [instagrapi PR #2812](https://github.com/subzeroid/instagrapi/pull/2812)                                                                                                                               | `1ba80a1`, merged 2026-09-19            | 448.0.0.0.20 / 1065560286 / `0bc46a03…` "captured and verified live on this profile (login, reads and publishes)" by the maintainer                                                                                    |
+| [instagrapi PR #2855](https://github.com/subzeroid/instagrapi/pull/2855)                                                                                                                               | `52346dd`, merged 2026-10-04            | 449.0.0.52.84 / 1079242191 / `799db3e3…` from "the User-Agent build and API Bloks version checked against the current Android app"; "**Current native 449 login has not been observed.**"                              |
+| [instagrapi PR #2853](https://github.com/subzeroid/instagrapi/pull/2853) and maintainer comment                                                                                                        | closed 2026-10-06                       | The 449 manifest `versionCode` 385511871 and bundled Bloks asset `a5285a65…` differ from the runtime UA build and API Bloks version; the maintainer rejected the manifest/bundled values                               |
+| [instagrapi PR #2792](https://github.com/subzeroid/instagrapi/pull/2792), [#2480](https://github.com/subzeroid/instagrapi/pull/2480), [#2864](https://github.com/subzeroid/instagrapi/pull/2864)       | `6f2bd23`, `cec4c02`, docs              | `needs_upgrade` handled through CAA; physical Pixel 8 Pro hardware profile; the UA must change together with an app selection                                                                                          |
+| Issues [#2773](https://github.com/subzeroid/instagrapi/issues/2773), [#2791](https://github.com/subzeroid/instagrapi/issues/2791), [#2807](https://github.com/subzeroid/instagrapi/issues/2807) (open) | 2026-08-20 to 2026-09-29                | Legacy `accounts/login/` returns `error_type: needs_upgrade` for some accounts/IPs; a maintainer ten-account check on the 448 default (2026-09-20): nine fresh logins, one HTTP 429; account-specific failures persist |
+| [aiograpi `config.py`](https://github.com/subzeroid/aiograpi/blob/bf0e9090c2f16bb8137ee92f42875b1ebc277646/aiograpi/config.py)                                                                         | 2.0.20, `bf0e909`                       | Identical profile catalog. Same maintainer, so **not independent** corroboration                                                                                                                                       |
+| [HushGram README](https://github.com/sherifrahim/HushGram/blob/166f17a3e06e318fd170532308f0a8098716cf10/README.md)                                                                                     | `166f17a`                               | Secondary: 449.0.0.52.84 arm64 build 385511871; current stable 450.0.0.50.77, arm64 builds 385611395–385611438; Android 9+                                                                                             |
+| [APKMirror Instagram listings](https://www.apkmirror.com/apk/instagram/instagram-instagram/)                                                                                                           | search-index snippets                   | Secondary: 293–450 builds listed as Android 9.0+; release pages refused automated retrieval (HTTP 403), so no listing was read directly                                                                                |
+| [Google factory images, husky](https://developers.google.com/android/images#husky)                                                                                                                     | page retrieved 2026-10-13               | Official: Pixel 8 Pro codename `husky`; Android 14 builds `UD1A.230803.022` to `AP2A.240905.003` (Sep 2024, final global Android 14); Android 15 starts at `AP3A.241005.015`                                           |
+| [Google Pixel tech specs](https://support.google.com/pixelphone/answer/7158570)                                                                                                                        | page retrieved 2026-10-13               | Official: Pixel 8 Pro 1344 × 2992 at 489 PPI, Google Tensor G3                                                                                                                                                         |
+| npm registry: `instagram-private-api`, `instagram_mqtt`                                                                                                                                                | 1.46.1 (2024-03-07), 1.2.3 (2024-04-23) | The installed Node dependencies are unmaintained since 2024 and are not current protocol evidence                                                                                                                      |
+
+An official APK was not downloaded or decompiled. Its manifest values are known
+from secondary indexes, and PR #2853 shows they are not the values the running
+app sends; reconstructing the runtime values needs observation of a running app,
+which is outside this offline milestone.
+
+## 3. Candidate profiles
+
+| Criterion                | Inherited 416                         | **A: instagrapi 448 (selected)**                  | B: instagrapi 449 (maintained default) | C: official 450.0.0.50.77 APK                |
+| ------------------------ | ------------------------------------- | ------------------------------------------------- | -------------------------------------- | -------------------------------------------- |
+| Version / code / Bloks   | 416.0.0.47.66 / 382206157 / `388ece…` | 448.0.0.0.20 / 1065560286 / `0bc46a…`             | 449.0.0.52.84 / 1079242191 / `799db3…` | 450.0.0.50.77 / manifest 3856114xx / unknown |
+| Internal consistency     | Mixed sources; no                     | Captured together from one running app            | Captured together from one running app | Runtime build and Bloks unknown              |
+| Source quality           | Patched dependency                    | Maintainer capture, PR #2812                      | Maintainer check, PR #2855             | Secondary indexes for manifest codes only    |
+| Known login              | Fails upstream (`needs_upgrade`)      | Maintainer-reported live login; 9/10 fresh logins | Not observed (stated in PR)            | None                                         |
+| Bloks pairing            | Unverified                            | Paired                                            | Paired                                 | Missing                                      |
+| Device plausibility      | Android 6–8; below Android 9 minimum  | Pixel 8 Pro, Android 14                           | Same device                            | Would need a device choice                   |
+| REST/MQTT applicability  | Yes                                   | Yes (constants only)                              | Yes (constants only)                   | Not constructible                            |
+| Session migration safety | Baseline                              | App-level change only                             | App-level change only                  | Unknown fields                               |
+| Newest                   | No                                    | No                                                | Newer                                  | Newest stable                                |
+
+**C was rejected** because the version code and Bloks hash the app sends cannot be
+reconstructed offline; the APK manifest values are known to differ from them.
+Inventing them would violate the selection rule. **B was a close second**: it is
+the maintained default and equally coherent, but its PR explicitly states that no
+native 449 login has been observed. **A was selected** because its three release
+fields and device were captured together and it is the only modern profile with
+maintainer-reported live login. It is one release older than B; newer is not a
+selection criterion. Switching to B later is a one-object, reviewed profile update.
+
+## 4. Selected profile
+
+| Field            | Value                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Profile ID       | `android-448.0.0.0.20-pixel-8-pro`                                                                                       |
+| App version      | `448.0.0.0.20`                                                                                                           |
+| Version code     | `1065560286` (runtime UA build number, not the manifest `versionCode`)                                                   |
+| Bloks version    | `0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432`                                                       |
+| Minimum Android  | SDK 28 (Android 9)                                                                                                       |
+| App ID           | `567067343352427` (REST and active MQTT)                                                                                 |
+| Capabilities     | `3brTv10=`                                                                                                               |
+| Android / SDK    | 14 / 34                                                                                                                  |
+| Manufacturer     | `Google/google`                                                                                                          |
+| Model / device   | `Pixel 8 Pro` / `husky`                                                                                                  |
+| CPU field        | `husky`                                                                                                                  |
+| Resolution / DPI | `1344x2992` / `480dpi`                                                                                                   |
+| ABI              | Not represented in the REST UA or MQTT payload; unknown and not sent                                                     |
+| OS build         | `AP2A.240905.003` (used only by the inactive web UA)                                                                     |
+| App UA           | `Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)` |
+| Supported caps   | SDK list `119.0`–`142.0`, face tracker `14`, `ETC2_COMPRESSION`, gyroscope                                               |
+| MQTT client info | capabilities `183`, endpoint `0`, publish format `1`, stack `3`, `cookie_auth`                                           |
+
+The UA is byte-identical to the one instagrapi PR #2812 published for this
+profile. `ApplicationRelease` holds version, code and Bloks hash as one frozen
+object; `defineCompatibilityProfile()` rejects any profile whose triple is not a
+declared release, or whose device is below the release's minimum SDK.
+
+## 5. Evidence strength per field
+
+| Field                           | Classification                                          | Notes                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| App version                     | Maintained-client evidence                              | Not found on APK indexes; the `X.0.0.0.N` pattern suggests a pre-release channel build (inference)                         |
+| Version code                    | Maintained-client evidence                              | Runtime UA build; official manifest code unknown                                                                           |
+| Bloks version                   | Maintained-client evidence                              | Captured with the version above                                                                                            |
+| Minimum Android SDK 28          | Strong inference                                        | Every indexed 293–450 build lists Android 9.0+; not verified from an APK                                                   |
+| Android 14 / SDK 34             | Official mapping, maintained-client pairing             | API 34 is Android 14; Pixel 8 Pro shipped Android 14                                                                       |
+| Model `Pixel 8 Pro`, `husky`    | Official                                                | Google factory images                                                                                                      |
+| Resolution `1344x2992`          | Official                                                | Google tech specs                                                                                                          |
+| DPI `480dpi`                    | Strong inference, maintained-client evidence            | 489 PPI falls in the xxhdpi (480) bucket                                                                                   |
+| Manufacturer `Google/google`    | Maintained-client evidence, strong inference            | Instagram writes `MANUFACTURER/brand` when they differ in case                                                             |
+| CPU field `husky`               | Maintained-client evidence                              | Tensor devices report the codename as hardware (inference)                                                                 |
+| OS build `AP2A.240905.003`      | Official                                                | Final global Android 14 build for husky; only used by the inactive web UA                                                  |
+| App ID                          | Inherited stable constant                               | Same in instagrapi REST and MQTT                                                                                           |
+| `X-IG-Capabilities`             | Inherited stable constant                               | instagrapi still sends `3brTv10=`; not tied to 448 specifically                                                            |
+| Supported capabilities          | Maintained-client evidence                              | instagrapi's list (last edited 2022), in use during the reported 448 logins; not generation-verified                       |
+| MQTT client/endpoint caps       | Maintained-client evidence, inherited stable constant   | Identical in instagrapi realtime                                                                                           |
+| Signature version/key           | Inherited but unverified; likely obsolete               | instagrapi sends `SIGNATURE.` without HMAC or key version. Not changed: the dependency's request builder computes the HMAC |
+| Experiments / login experiments | Inherited but unverified; obsolete in maintained client | instagrapi no longer sends experiments in QE sync. Only our guest QE (missing encryption key) sends them                   |
+| Web UA Chrome `131.0.6778.135`  | Inherited, not relevant                                 | No active request path uses the web UA                                                                                     |
+| FBNS density/ABI/app ID         | Not relevant                                            | FBNS is never started                                                                                                      |
+| Default locale `en_US`          | Not relevant (account state)                            | Persisted per account                                                                                                      |
+
+## 6. Device policy
 
 ```text
-instagram-private-api constants + patch-package version/Chrome edits
-                    ↓
-username → Chance(seed) → dependency device/build samples
-                    ↓
-               IgApiClient.state ← session deserialization
-                    ↓                         ↓
-             REST request builder    realtime connection builder
-                                              ↑
-                                  MQTT hard-coded client defaults
+new account (no saved session for the username)
+    ↓
+one canonical device template: Pixel 8 Pro, Android 14, AP2A.240905.003
+    ↓
+Chance(username): android-<16 hex> device ID → UUID → phone ID → advertising ID
+    ↓
+persisted in session.ts.json; stable from then on
 ```
 
-After extraction:
+There is no device pool and no per-invocation randomness. Identifiers stay
+deterministic per case-sensitive username and are independent of the app
+profile, so a later app update cannot change them. Removing the M1 pool selection
+changes the random stream: a username with **no** saved state now derives
+different identifiers than M1 would have. Saved accounts are unaffected (below).
+
+## 7. Session precedence
 
 ```text
-InstagramCompatibilityProfile (source/compatibility/profile.ts)
+generateCompatibilityDevice(username)      fallback for incomplete state
+        ↓
+restoreCompatibilitySession(session)
+    drop persisted `constants` (never trusted)
+    deserialize: cookies, authorization, device, build, IDs, locale, timezone
+        ↓
+applyCompatibilityProfile(profile)         authoritative application fields
+    version, code, Bloks, app ID, signing, experiments,
+    capabilities header, supported capabilities, web UA accessor
+        ↓
+REST request builder        MQTT connection builder (+ profile app ID/caps overrides)
+```
+
+`InstagramClient.loginBySession()` uses this flow and logs, without values, which
+saved application fields were replaced. Production has no remaining direct
+`state.deserialize()` call; a test enforces that. Dropping persisted constants
+also matters beyond the profile fields: a stale raw `HOST` hides the session
+cookie from the MQTT builder.
+
+Credential login (`InstagramClient.login()`) for a username with a saved session
+calls `restoreAccountIdentity()`: it restores device, build, device ID, UUID,
+phone ID and advertising ID, all or nothing, and no authentication state.
+Applying a profile never touches those fields. Tests prove that stale persisted
+constants, capabilities and supported capabilities lose to the profile, that REST
+and MQTT then agree, that repeated application leaves identifiers unchanged, and
+that the raw dependency deserializer is still unsafe.
+
+| Field group                                                      | Owner                    |
+| ---------------------------------------------------------------- | ------------------------ |
+| Version, code, Bloks, app ID, signing, experiments, capabilities | Selected profile, always |
+| `deviceString`, build, device ID, UUID, phone ID, advertising ID | Account, persisted       |
+| Locale, timezone, radio/connection state                         | Account, persisted       |
+| Cookies, authorization, claims, encryption key/key ID            | Server/session           |
+| Pigeon/client session IDs, MQTT session ID, subscription IDs     | Transient                |
+
+## 8. Existing-account behavior
+
+A saved session keeps its identifiers and its **existing hardware**, including an
+M1 Android 6–8.1 device. Only application fields change, to 448. No session file
+is rewritten until the next normal save, which stores the same identity.
+
+That continuity has a known structural problem: indexed Instagram 4xx builds
+require Android 9, so `448 + Android 7.1.1` is a combination no real phone can
+produce. The evidence is secondary, so M2 does not migrate silently. Instead the
+report flags it (`App minimum: SDK 28 (not met by this device)`), and
+`matchesSelectedProfile.device` is false for retained hardware.
+
+Whether Instagram accepts an existing session after the app-level change, or
+requires reauthentication, **cannot be determined offline**. Treat every existing
+account as a reauthentication candidate. A device migration for such accounts
+should be explicit, reversible (backup first), move device and build together,
+and be decided in M3 alongside live authentication.
+
+## 9. New-account behavior
+
+A username with no saved session gets the template and username-derived
+identifiers. After explicit logout (which deletes the session), the next login is
+a new device. Tests assert that 100 synthetic new accounts never receive a 416
+version, the old Bloks hash, an SDK 23–27 device, or a legacy build, and that the
+identifiers are unique per username and stable across profile changes.
+
+## 10. Unresolved constants and remaining inconsistencies
+
+1. **Login flow.** Our dependency sends legacy `accounts/login/`; the maintained
+   client is CAA/Bloks first. See section 11.
+2. **Signing.** HMAC with the inherited v4 key and `ig_sig_key_version=4`, while
+   instagrapi sends unsigned `SIGNATURE.` bodies. This is request behavior in the
+   dependency, not a profile constant.
+3. **Header set.** The dependency hard-codes `X-FB-HTTP-Engine: Liger`, versus
+   `Tigon/MNS/TCP` in instagrapi. It also omits headers instagrapi sends, such as
+   `X-IG-Family-Device-ID`, `X-MID`, `X-IG-Mapped-Locale`,
+   `X-IG-App-Startup-Country`, `X-Bloks-Is-Panorama-Enabled`, `IG-INTENDED-USER-ID`
+   and the bandwidth/zero-rating headers. Transport differs too (HTTP/1.1 versus
+   HTTP/2 with TLS 1.3).
+4. **Experiments.** The 814/88-entry lists come from the dependency's app-222 era.
+5. **Release provenance.** 448.0.0.0.20 is probably a pre-release channel build;
+   its official manifest code and minimum SDK are not APK-verified.
+6. **Device age.** Android 14 with a September 2024 build is plausible, but not
+   the Pixel 8 Pro's current OS. This keeps the maintained-client pairing.
+7. **Existing hardware.** Retained legacy devices are below the app's minimum SDK
+   (section 8).
+8. **Country code** stays hard-coded to `1` in the login form.
+9. **M1 carry-overs**: dormant FBNS identity, MQTT authorization-cache edges, and
+   the `Number` → `BigInt` user-ID precision boundary (sections below).
+10. **Web UA** keeps the inherited Chrome version; it has no active request path.
+
+## 11. CAA implications and M3 recommendation
+
+Evidence: instagrapi 3.0.0 (2026-09-13) made CAA/Bloks login the default
+(`b.i.instagram.com/api/v1/bloks/async_action/com.bloks.www.bloks.caa.login.async.send_login_request/`).
+Legacy `accounts/login/` is used only when Instagram returns
+`CAA_LOGIN_FALLBACK`. Issues #2773, #2791 and #2807 show legacy login returning
+`needs_upgrade` for some accounts/IPs even on current profiles, while the reported
+448 successes came through the CAA-first flow. The selected profile is therefore
+expected to be used with **CAA/Bloks login**, with legacy only as a
+server-directed fallback.
+
+**Recommendation for M3: B, implement CAA before live testing.** A legacy probe
+(A or C) would spend a real login attempt on a path known to be gated, and each
+failed attempt adds account risk (verification emails, 429s, checkpoints). The
+profile's Bloks pairing exists precisely so CAA can use it. M3 should also decide
+signing and the header set (items 2–3) and the existing-account device migration,
+then run one controlled, explicitly authorized live attempt.
+
+## 12. Procedure for future profile updates
+
+1. Collect evidence for one release: version, runtime UA build and API Bloks
+   version captured together, with source, commit and retrieval date. Do not
+   combine values from different releases or from APK manifests/bundled assets.
+2. Add a frozen `ApplicationRelease` to `declaredReleases`; never edit one field
+   of an existing release.
+3. Choose one device template whose SDK meets `minimumAndroidSdk`; verify model,
+   codename, resolution and build against vendor documentation.
+4. Update the independent literals in `profile.test.ts`, `rest.test.ts`,
+   `mqtt.test.ts` and `report.test.ts` deliberately, and extend the legacy and
+   new-account regression guards.
+5. Keep the M1 fixtures. Run the old-session precedence tests.
+6. Run complete isolated Node 22/24 gates and the focused harness commands below.
+7. Record the change in this document and keep live validation a separately
+   authorized step.
+
+## Ownership and dependency boundaries
+
+```text
+InstagramCompatibilityProfile (profile.ts)
+   release + device template + application constants
           ↓                                      ↓
-applyCompatibilityProfile                 realtimeCompatibilityOptions
+applyCompatibilityProfile / restore       realtimeCompatibilityOptions
           ↓                                      ↓
 IgApiClientExt.state ──────────────────→ RealtimeClient
           ↓                                      ↓
 real REST repositories/request builder    real connection builder → Thrift
-
-username → generateCompatibilityDevice → owned ordered device/build data
-                         ↓
-                  same client state
-                         ↑
-                restored session fields
 ```
 
-[`profile.ts`](../source/compatibility/profile.ts) defines typed application,
-Android device, capability, signing, experiment, and realtime fields.
-[`baseline-data.json`](../source/compatibility/baseline-data.json) owns the original
-sample pools and long experiment lists. Their original MIT attribution is in
-[`NOTICE.md`](../source/compatibility/NOTICE.md); repository/upstream attribution
-and `LICENSE` remain unchanged.
+`createInstagramApiClient()` keeps `IgApiClientExt`, since `withRealtime()`
+otherwise replaces an ordinary client. `applyCompatibilityProfile()` clones the
+constants per instance and installs a non-enumerable web-UA accessor; no
+prototype is modified and no session field is added. The original
+`instagram-private-api` sample data and its MIT notice remain in
+[`baseline-data.json`](../source/compatibility/baseline-data.json) and
+[`NOTICE.md`](../source/compatibility/NOTICE.md); values borrowed from instagrapi
+are attributed there as well.
 
-[`client.ts`](../source/compatibility/client.ts) provides four explicit boundaries:
+The dependencies remain responsible for request behavior: endpoints, retries,
+encoding and encryption, launcher configuration queries, topic/query IDs, and
+response handling. Hosts, OTA query fields and the unused Orca application ID
+`124024574287414` stay dependency constants.
 
-1. `createInstagramApiClient()` constructs `IgApiClientExt`, applies the profile,
-   and initializes the default locale. Keeping the extended class matters:
-   `withRealtime()` otherwise replaces an ordinary client with a new instance.
-2. `applyCompatibilityProfile()` clones `state.constants`, replaces the owned
-   constants, and sets capabilities and supported capabilities. It preserves
-   device identifiers and locale. All these state fields are writable in the
-   installed library. A non-enumerable per-instance web-UA accessor replaces the
-   Chrome patch; no production prototype is modified and no session field is added.
-3. `generateCompatibilityDevice()` uses the original Chance sequence and our own
-   sample data. Both credential and saved-session entry points call it.
-4. `realtimeCompatibilityOptions()` supplies the public `connectOverrides` for
-   application ID and MQTT capability/format/stack fields. `InstagramClient` passes
-   them at its existing realtime integration point. App version, app UA, language,
-   and `X-IG-Capabilities` continue to read the same state as REST.
+## REST identity
 
-The dependency remains responsible for request behavior: endpoints, retries,
-encoding/encryption, launcher configuration queries, topic/query IDs, and response
-handling. Hosts, OTA query fields, and the unused Orca application ID
-`124024574287414` remain dependency constants. Orca is used by its optional
-`simulate.facebookOta()` flow; Instagram-CLI uses its own smaller startup flow.
-These are mapped boundaries, not undocumented application-profile overrides.
+The request builder derives `User-Agent` from app version, `deviceString`,
+language and version code. `X-IG-App-ID`, `X-Bloks-Version-Id` and
+`X-IG-Capabilities` read the configured state. Device headers use the UUID and the
+`android-…` device ID; timeline also sends the advertising ID and UUID. Locale is
+persisted account state. Signed forms carry `ig_sig_key_version` and
+`signed_body=<HMAC>.<JSON>`. Login uses the real `#PWD_INSTAGRAM:4:` envelope and
+fields `username`, `enc_password`, `guid`, `phone_id`, `_csrftoken`, `device_id`,
+`adid`, `google_tokens`, `login_attempt_count`, `country_codes` and `jazoest`.
+Without an encryption key, login first runs guest QE sync. Pre-login startup is
+launcher sync; post-login cold start requests reels, then timeline.
 
-## REST identity and startup
+Sanitized capture for a new account (identifiers redacted):
 
-The real request builder derives `User-Agent` from app version, `deviceString`,
-language, and version code. `X-IG-App-ID`, `X-Bloks-Version-Id`, and
-`X-IG-Capabilities` read the configured state. Device headers use UUID and the
-`android-…` device ID; timeline additionally sends advertising ID and UUID through
-`X-Google-AD-ID` and `X-DEVICE-ID`.
-
-Locale is persisted state: `X-IG-App-Locale` and `X-IG-Device-Locale` carry
-`state.language`, while `Accept-Language` replaces its underscore with a hyphen.
-Layout RTL defaults to `false`, connection type to `WIFI`, radio type to
-`wifi-none`, ads opt-out to false, and HTTP engine to `Liger`. Timezone offset
-comes from the local machine and is persisted. Pigeon/raw-client timestamps,
-connection-speed simulation, battery level, and charging state retain dependency
-behavior; they are not application-version constants. EU-DC, MID cookie, WWW
-claim, authorization, CSRF and user cookies remain session/server state.
-
-The signed form contains `ig_sig_key_version` and
-`signed_body=<HMAC hex>.<JSON>`. Login retains the real RSA/AES password envelope
-`#PWD_INSTAGRAM:4:<timestamp>:<base64>` and fields `username`, `enc_password`,
-`guid`, `phone_id`, `_csrftoken`, `device_id`, `adid`, `google_tokens`,
-`login_attempt_count`, `country_codes`, and `jazoest`. `jazoest` sums the phone-ID
-character codes with a `2` prefix. The country-code list stays hard-coded to
-`[{"country_code":"1","source":"default"}]` in the repository method; it has no
-state override. No login waterfall ID is sent by this implementation.
-
-If a password-encryption key is absent, login first calls QE sync to obtain it.
-Encryption key/key ID can be restored from a session and subsequently replaced
-by response headers. Guest QE uses UUID as `id`; authenticated QE uses the saved
-user ID plus UUID and CSRF. Launcher sync uses UUID before login and user/UUID
-fields after login. The launcher configuration lists remain request behavior and
-are pinned by fixture hashes.
-
-Instagram-CLI's pre-login flow is launcher sync. Its post-login cold-start flow
-requests reels then timeline. Reels passes supported capabilities as a nested
-URL-encoded form; timeline is also unsigned and sends UUID as its form
-`device_id`, phone ID, timezone, and an ephemeral client-session ID. The harness
-covers these paths plus authenticated launcher sync and both QE entry points.
-It does not invoke the dependency's full `simulate` flow.
-
-The web-UA getter is observable but no active request path in this checkout uses
-it. Its inherited whitespace is preserved: `devicePayload.model` includes a
-leading space because the dependency splits on `;` without trimming.
-Other optional operations use a UUID as password-change `waterfall_id`, or a
-fresh GUID for account lookup/upload contexts. They are operation identifiers,
-not a second device pool, and are not changed here.
+| Route               | Path                       | Identity                                                |
+| ------------------- | -------------------------- | ------------------------------------------------------- |
+| Login               | `/api/v1/accounts/login/`  | 448 UA, app ID, `0bc46a03…`, `3brTv10=`, signed v4      |
+| Launcher sync       | `/api/v1/launcher/sync/`   | Same identity, signed v4                                |
+| Experiment sync     | `/api/v1/qe/sync/`         | Same identity, signed v4                                |
+| Reels cold start    | `/api/v1/feed/reels_tray/` | Same identity, unsigned; supported caps `119.0,…,142.0` |
+| Timeline cold start | `/api/v1/feed/timeline/`   | Same identity, unsigned                                 |
 
 ## MQTT identity
 
-Active realtime uses `cookie_auth`, the app UA in both `clientInfo.userAgent` and
-`appSpecificInfo['User-Agent']`, app version, capabilities, and normalized locale
-from the REST state. It uses **phone ID** as MQTT `deviceId` and its first 20
-characters as `clientIdentifier`. The account ID comes from `cookieUserId`.
-`clientMqttSessionId` is the low 32 bits of the current millisecond clock, generated
-for each construction rather than persisted.
+Active realtime uses `cookie_auth`, the REST app UA in `clientInfo.userAgent` and
+`appSpecificInfo['User-Agent']`, app version, capabilities and locale from the
+same state, plus the profile's app ID and client capabilities via public
+overrides. It uses the **phone ID** as `deviceId` and its first 20 characters as
+`clientIdentifier`. Iris sends `snapshot_app_version` from the same state.
 
-The captured payload also retains network type `1`, subtype `0`, foreground
-flags, empty device secret, platform `android`, route `django`, message-type
-blacklist `direct, typing_type`, and auth-cache flag `0`. Everclear subscription
-query IDs and numeric topic IDs stay in the library's protocol builders. The
-public overrides do not expose `appSpecificInfo` or those query IDs; moving them
-would require changing that library's behavior and is deferred.
+Sanitized capture: app ID `567067343352427`, app version `448.0.0.0.20`, the 448
+UA above, `X-IG-Capabilities: 3brTv10=`, client capabilities `183`, endpoint
+`0`, publish format `1`, stack `3`, topics `88, 135, 149, 150, 133, 146`.
+Everclear query IDs and topic IDs stay in the library's protocol builders.
 
-GraphQL subscription builders retain their query IDs and create transient
-subscription GUIDs. Zero-provision binds phone ID; typing/ads and Skywalker bind
-user ID. Iris sends `snapshot_app_version` from the same state. Tests exercise
-these builders and Iris compression without publishing anything.
-
-**Unused FBNS is a separate boundary.** Instagram-CLI never calls `withFbns()` or
-its connection method. The library hard-codes FBNS app ID `567310203415052`,
-client capabilities `183`, endpoint capabilities `128`, `device_auth`, and topics
-`76,80,231`; its public connection options do not offer identity overrides.
-Its UA takes app version/code, locale, model and resolution from state, but
-hard-codes density `4.0`, ABI `x86:armeabi-v7a`, and package
-`com.instagram.android`. The inherited FBDM text also lacks a closing brace.
-These values are characterized offline and intentionally not unified with the
-active realtime app ID. FBNS would require a separate compatibility decision if
-enabled later.
-
-## Device and session boundaries
-
-```text
-username (case-sensitive)
-    ↓
-Chance 1.1.13 seed
-    ↓
-pick one of 40 devices
-    ↓
-16 hexadecimal characters → android-… device ID
-    ↓
-GUID → UUID; GUID → phone ID; GUID → advertising ID
-    ↓
-pick one of 16 builds (independent of the device)
-    ↓
-state serialization → SessionManager → session.ts.json
-```
-
-Sample order, duplicate builds, and random-number call order are compatibility
-contracts. Tests compare the owned generator to the library and to the
-pre-extraction 100-seed digest. The device's SDK, release, DPI, resolution,
-manufacturer/model, device codename and CPU string remain observable.
-
-| Field group                                                                         | Creation and restoration                                         | Future boundary                                                                        |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `deviceId`, UUID, phone ID, ad ID                                                   | Deterministic from username, persisted, restored over generation | Keep stable per account; do not regenerate for an app update                           |
-| `deviceString`, build                                                               | Seeded selection, persisted, restored                            | Explicit device migration, never cosmetic replacement                                  |
-| Locale, timezone, capability header, supported capabilities, radio/connection state | Defaults initially, then persisted/restored                      | Locale is account state; capabilities need an explicit app-profile precedence decision |
-| App version/code, Bloks, signing, experiment strings, REST app ID                   | Owned constants; normal saves remove `constants`                 | Application-profile controlled for ordinary saved sessions                             |
-| Cookies, authorization, claims, encryption key/key ID                               | Server/session state, persisted                                  | Authentication material, never part of reports/fixtures                                |
-| Pigeon/client session GUIDs                                                         | Device ID plus rounded 20-minute time bucket and a distinct seed | Generated getters; not serialized; lifetimes are serialized                            |
-| MQTT session ID and subscription GUIDs                                              | Clock or fresh generation during construction                    | Transient; normalize or check format/relationship                                      |
-
-The existing order is deliberately unchanged: **apply profile → generate device →
-deserialize session**. `SessionManager.saveSession()` strips constants. Thus a
-normal session follows new application constants but can retain old capabilities,
-supported capabilities, device, build, locale, and timezone. REST and MQTT share
-those retained fields, even when they differ from the selected profile.
-
-A legacy/raw imported state containing `constants` can override the entire
-application constants object. REST can then use an old app ID while MQTT uses the
-selected profile's ID (previously a hard-coded default). A test preserves this
-exception rather than pretending all sessions are coherent. Explicitly calling
-`applyCompatibilityProfile()` after deserialization restores app constants and
-capabilities without changing IDs, device/build, or locale. **Production does not
-perform that reapplication in M1.**
-
-Authorization has another inherited edge: MQTT reads `parsedAuthorization` before
-asking for `cookieUserId`, while that getter parses authorization only if the
-user-ID cookie is absent. A cookie can therefore win over an unparsed header;
-an authorization-only state needs parsing before connection construction; and a
-cached parsed session can lag a changed authorization header for one construction.
-REST reads the authorization header directly. Tests expose all three cases.
-The MQTT builder also converts user ID through `Number` before `BigInt`, so IDs
-outside JavaScript's exact integer range are a known precision boundary.
-
-No session migration or storage change occurs here. Existing `~/.instagram-cli`
-and `INSTAGRAM_CLI_HOME` remain valid and real local state was not used by this
-milestone. Whether a server requires re-login for a particular identity change
-cannot be determined offline. Treat device/model/build/ID or authentication-flow
-changes as explicit reauthentication candidates; never silently rewrite them.
+MQTT reads `parsedAuthorization` before `cookieUserId`, so a cookie can win over
+an unparsed header, an authorization-only state needs priming, and a cached
+parse can lag a changed header for one construction. The user ID passes through
+`Number` before `BigInt`. **Unused FBNS** hard-codes app ID `567310203415052`,
+endpoint capabilities `128`, `device_auth`, density `4.0` and ABI
+`x86:armeabi-v7a`; it is characterized but outside the active adapter.
 
 ## Offline harness and sanitized report
 
-[`tests/compatibility/`](../tests/compatibility/) has a local TypeScript project so
-its dependency seams are type-checked instead of suppressing unresolved types.
-Run it with the selected runtime:
+[`tests/compatibility/`](../tests/compatibility/) has its own TypeScript project.
+REST replaces `request`'s transport through request defaults, captures the fully
+encoded request and throws a sentinel before any socket exists; repository logic,
+signing, encryption and form encoding stay real. MQTT drives the real private
+connection builder through a test-only bridge, serializes and decodes Thrift, and
+never calls `connect()`. Workers deny HTTP, HTTPS, TLS, sockets and fetch, and
+assert zero attempts. Application tests stub only the final login request and the
+post-login setup.
 
 ```bash
 mise exec node@22 -- npx --no-install tsc -p tests/compatibility/tsconfig.json --noEmit
 mise exec node@22 -- npx --no-install ava 'tests/compatibility/*.test.ts'
 ```
 
-REST replaces `request`'s supported HTTP-module transport through request defaults,
-disables proxy/agent use, captures the fully encoded headers/form, then throws a
-unique sentinel **before creating a socket**. Repository logic, signing, password
-encryption, header construction, cookies and URL encoding remain real. Tests
-verify the expected sentinel and exactly one capture; other errors fail the test.
+[`compatibilityReport()`](../source/compatibility/report.ts) returns allowlisted
+fields only, and `formatCompatibilityReport()` renders them:
 
-MQTT accesses the installed runtime's private connection builder through a typed,
-test-only bridge. It does not call the real `connect()` method. It serializes and
-decodes actual Thrift and checks actual compression. A separate application
-integration test intercepts `connect()` to check the options passed by
-`InstagramClient`; it also replaces the inbox request used for Iris state.
-Private seams are confined to tests and will fail visibly if a dependency changes.
+```text
+Instagram-CLI compatibility profile
 
-Harness workers deny HTTP, HTTPS, TLS, sockets and fetch as a second barrier and
-assert zero fallback attempts. They use fixed dummy accounts and AVA's temporary
-state setup. There are **zero Instagram HTTP requests, zero Instagram MQTT
-connections, and zero live login attempts**. Constructing a dummy login request
-in memory is not a service login attempt.
+Profile:            android-448.0.0.0.20-pixel-8-pro
+Profile status:     selected
+Profile source:     instagrapi 3.0.24 (a3b7538) app profile 448.0.0.0.20 and device settings; build from Google factory images
+App version:        448.0.0.0.20
+Version code:       1065560286
+Bloks version:      0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432
+Android:            14 (SDK 34)
+Device:             Google/google Pixel 8 Pro (husky; husky; 480dpi; 1344x2992; build AP2A.240905.003)
+App minimum:        SDK 28 (met)
+REST app ID:        567067343352427
+REST capabilities:  3brTv10=
+MQTT app version:   448.0.0.0.20
+MQTT app ID:        567067343352427
+Matches profile:    yes
+Live validation:    not performed
+```
 
-[`compatibilityReport()`](../source/compatibility/report.ts) is an internal,
-allowlisted diagnostic: app fields, non-unique device characteristics, locale,
-REST/MQTT app IDs and selected-profile match flags. It reads no files and sends
-nothing. It excludes credentials, authorization, cookies, UUID/device/ad/phone
-IDs, session IDs, claims, encryption keys, and usernames. Pass an already
-constructed client with a generated device, preferably a synthetic one. No public
-CLI command was added. Never print complete serialized state or MQTT payloads.
+It reads no files, sends nothing, and excludes credentials, authorization,
+cookies, UUID/device/ad/phone IDs, session IDs, claims, encryption keys and
+usernames. `insta-cli version` shows the profile ID; no other public command
+exposes the report.
 
 ## Patch audit
 
-| Patch hunk                                                          | Classification                               | Disposition and reason                                                                  |
-| ------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `instagram-private-api` app version/code in compiled constants      | Compatibility constant                       | Removed; configured through instance `state.constants`                                  |
-| `instagram-private-api` Chrome version in compiled web-UA getter    | Compatibility constant                       | Removed; non-enumerable instance accessor reads the owned Chrome input                  |
-| `instagram-private-api` reply argument and imported type in `.d.ts` | Project integration behavior                 | Retained; describes the reply API used by this project's chat code                      |
-| `instagram-private-api` reply fields in `broadcastText()`           | Compatibility behavior / project integration | Retained; changes request payload composition, which state configuration cannot express |
-| Pastel option-validation render: `exitOnCtrlC: false`               | Project integration behavior                 | Retained; internal render call has no per-client profile setting                        |
-| Pastel argument-validation render: `exitOnCtrlC: false`             | Project integration behavior                 | Retained for the same Ctrl+C ownership contract                                         |
-| Pastel normal command render: `exitOnCtrlC: false`                  | Project integration behavior                 | Retained so this application controls full-screen teardown                              |
+| Patch hunk                                                          | Classification                               | Disposition                                                |
+| ------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------- |
+| `instagram-private-api` reply argument and imported type in `.d.ts` | Project integration behavior                 | Retained                                                   |
+| `instagram-private-api` reply fields in `broadcastText()`           | Compatibility behavior / project integration | Retained; payload composition that state cannot express    |
+| Pastel `exitOnCtrlC: false` (three renders)                         | Project integration behavior                 | Retained so this application controls full-screen teardown |
 
-There is no `instagram_mqtt` patch and no unrelated or separately classified bug-fix
-hunk in the current patch set. Removing the remaining patches would change
-behavior. This milestone removes only replaceable compatibility constants.
-
-## Known inconsistencies and M2 recommendation
-
-The baseline deliberately combines patched app version 416/code 382206157 with
-Bloks, signing, experiments and supported capabilities inherited from a dependency
-whose original default was app 222/code 350696709. Their true generation/coherence
-is unverified. It also combines old Android device samples with independently
-chosen builds and Chrome 131. The synthetic baseline selects Android 7.1.1,
-Xiaomi MI MAX 2, and `JZO54K`; no matching device/build relationship is enforced.
-Login's country code remains `1` regardless of locale/timezone. Session precedence,
-authorization-cache discrepancies, and dormant FBNS differences are described above.
-None were repaired during extraction.
-
-For M2, use **one fixed, coherent modern Android device profile for newly created
-account state**, rather than immediately introducing another device pool. Obtain
-all app/version-code/Bloks/capability/experiment and device/build/SDK/UA evidence
-from the same selected official Android application build and matching device
-configuration, using authorized offline inspection and recording provenance.
-Do not assemble a fingerprint from unrelated snippets or pick a version merely
-because it is newest. A pool would multiply combinations before one combination
-is understood.
-
-Keep per-account generated identifiers stable. Existing accounts should retain
-their saved device identity until an explicit, reversible migration is designed:
-record the selected profile, preserve a backup, decide when reauthentication is
-required, and migrate device/build fields together. Application constants and
-capabilities should eventually have documented precedence after deserialization;
-legacy raw constants must be handled explicitly rather than silently mixed with
-MQTT defaults. None of this migration is implemented here.
-
-For each future profile change, review the data diff, explain each changed value
-and its source, update focused expectations deliberately, exercise changed-profile
-REST/MQTT tests and old-session cases, and run complete isolated Node 22/24 gates.
-Keep a separate, explicitly authorized milestone for live validation and login
-repair. An offline coherent fingerprint still does not prove Instagram accepts it.
+M1 removed the app version/code and Chrome version hunks. M2 added no patch and
+no constant outside the profile architecture.

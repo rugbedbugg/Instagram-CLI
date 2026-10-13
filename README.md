@@ -59,7 +59,7 @@ The inherited Python client remains under [`instagram-py/`](instagram-py/README.
 - [x] Harden local-file sending and preserve existing session/configuration paths.
 - [x] Establish the Instagram-CLI downstream identity and command compatibility.
 - [x] Own the [Instagram compatibility profile](docs/compatibility-profile.md) and verify REST/MQTT fingerprints offline.
-- [ ] Establish a coherent modern profile with an explicit existing-session migration plan.
+- [x] Establish a [coherent modern profile](docs/compatibility-profile.md#4-selected-profile) with an explicit existing-session policy (offline; not live-validated).
 - [ ] Repair authentication and separately revalidate live flows.
 - [ ] Prepare a downstream release after compatibility validation and registry ownership checks.
 

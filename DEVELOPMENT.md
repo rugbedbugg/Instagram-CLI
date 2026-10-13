@@ -6,7 +6,7 @@ Live Instagram authentication is currently degraded and has not been revalidated
 
 ## Setup
 
-Use Node.js >=22 through `mise`; CI validates Node 22 and 24. The existing version policy is conservative. Compatibility-profile extraction changes no runtime requirements, resolved dependency versions, or application version.
+Use Node.js >=22 through `mise`; CI validates Node 22 and 24. The existing version policy is conservative. The compatibility profile changes the Instagram app identity the client presents, not runtime requirements, resolved dependency versions, or the package version.
 
 ```bash
 git clone https://github.com/rugbedbugg/Instagram-CLI.git
