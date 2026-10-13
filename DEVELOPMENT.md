@@ -45,7 +45,7 @@ npm run start:mock -- --feed
 npm run start:mock -- --story
 ```
 
-Use one view per invocation. Update `source/mocks/mock-data.ts` alongside changes to the UI's expected data. See [the mock guide](source/mocks/README.md) and design documents in `docs/`.
+Use one view per invocation. Update `source/mocks/mock-data.ts` alongside changes to the UI's expected data. Mock imagery comes from `source/mocks/mock-images.ts` as `data:` URIs: image components fetch their sources and cannot cancel on unmount, so remote URLs would make tests wait on third-party hosts. See [the mock guide](source/mocks/README.md) and design documents in `docs/`.
 
 ## Required gates
 

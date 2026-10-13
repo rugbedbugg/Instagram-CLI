@@ -35,7 +35,7 @@ This documentation provides context for AI coding tools like VSCode, Cursor, Gem
 - When pre-commit hooks are unavailable, run `npm run format`, `npm run lint-check`, and `npm test` locally before submitting work.
 - Prefer mock runs (`npm run start:mock -- --chat|--feed|--story`) during UI work; update `source/mocks/mock-data.ts` if expectations shift.
 - **TUI testing quirks:** Ink renders to a string buffer, not a real terminal. Use `render()` from `ink-testing-library` and assert against `lastFrame()` output. For visual elements like unread indicators or selection highlights, check for the expected Unicode/ANSI characters in the frame string (e.g., `t.truthy(output?.includes('●'))`).
-- **What to test:** Component rendering with mock data, keyboard input handling (`stdin.write()`), edge cases like empty states and Unicode text. Mock the client for UI tests. The compatibility harness may exercise real request/payload construction only with transport interception and network-denial guards; never send Instagram requests or open MQTT connections in tests.
+- **What to test:** Component rendering with mock data, keyboard input handling (`stdin.write()`), edge cases like empty states and Unicode text. Mock the client for UI tests; mock imagery must be `data:` URIs, and Ink tests that render it deny outbound sockets (`tests/_deny-sockets.ts`). The compatibility harness may exercise real request/payload construction only with transport interception and network-denial guards; never send Instagram requests or open MQTT connections in tests.
 
 ## External Documentation
 

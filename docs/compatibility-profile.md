@@ -2,26 +2,40 @@
 
 Instagram-CLI owns the identity it asks its dependencies to present. M1 extracted
 the inherited identity into first-party source. M2 replaced it with **one
-evidence-backed, internally coherent modern Android profile** and made that
+evidence-backed, internally coherent, current Android profile** and made that
 profile authoritative after session restore.
 
 > **A coherent profile does not by itself prove that Instagram currently accepts
 > login.** Every M2 result is offline. No Instagram HTTP request, MQTT connection,
 > or login attempt was made. Server acceptance remains unverified.
 
-| Question                             | Answer                                                               |
-| ------------------------------------ | -------------------------------------------------------------------- |
-| Selected profile                     | `android-448.0.0.0.20-pixel-8-pro`                                   |
-| What a new account presents          | Instagram 448.0.0.0.20 (1065560286), Pixel 8 Pro on Android 14       |
-| What an existing saved account keeps | Its device, build and identifiers; only application fields change    |
-| Who decides application fields       | `currentCompatibilityProfile`, applied after every session restore   |
-| Is the M1 identity still available   | Yes, as `legacyInheritedProfile`, a test and documentation reference |
-| Recommended next step (M3)           | Implement CAA/Bloks login before any live test (see section 11)      |
+| Question                             | Answer                                                              |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| Selected profile                     | `android-449.0.0.52.84-pixel-8-pro`                                 |
+| What a new account presents          | Instagram 449.0.0.52.84 (1079242191), Pixel 8 Pro on Android 14     |
+| Profile status                       | Captured current; offline verified-coherent; live login unverified  |
+| What an existing saved account keeps | Its device, build and identifiers; only application fields change   |
+| Who decides application fields       | `currentCompatibilityProfile`, applied after every session restore  |
+| Reference profiles                   | `legacyInheritedProfile` (416), `android448HistoricalProfile` (448) |
+| Recommended next step (M3)           | Implement CAA/Bloks login before any live test (see section 11)     |
 
 Source: [`profile.ts`](../source/compatibility/profile.ts),
 [`legacy-profile.ts`](../source/compatibility/legacy-profile.ts),
 [`client.ts`](../source/compatibility/client.ts),
 [`report.ts`](../source/compatibility/report.ts).
+
+## Profile set and status
+
+| Profile | ID                                  | Status                 | Offline           | Live login                        |
+| ------- | ----------------------------------- | ---------------------- | ----------------- | --------------------------------- |
+| 416     | `legacy-inherited-416.0.0.47.66`    | `legacy-reference`     | Inconsistent      | Known failing (`needs_upgrade`)   |
+| 448     | `android-448.0.0.0.20-pixel-8-pro`  | `historical-reference` | Verified-coherent | Historical success, later failing |
+| 449     | `android-449.0.0.52.84-pixel-8-pro` | `selected`             | Verified-coherent | Unverified for Instagram-CLI      |
+
+"Offline" is this project's own result: the release tuple is declared as one
+build, the device template meets the release's minimum SDK, and the harness
+proves REST and MQTT present it. "Live login" is never inferred from that. Each
+profile carries this as `evidence`, and the sanitized report prints it.
 
 ## 1. M1 inherited profile (legacy reference)
 
@@ -51,28 +65,33 @@ while the pool is SDK 23–27. The M1 identity was therefore not coherent.
 
 ## 2. M2 research sources
 
-Retrieved 2026-10-13. Public repositories, APK metadata pages and vendor
-documentation only; no Instagram endpoint was contacted.
+Retrieved 2026-10-13, then re-checked the same day for the corrective update.
+Public repositories, APK metadata pages and vendor documentation only; no
+Instagram endpoint was contacted.
 
-| Source                                                                                                                                                                                                 | Version / commit                        | What it supports                                                                                                                                                                                                       |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [instagrapi `config.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/config.py)                                                                   | 3.0.24, `a3b7538` (2026-10-13)          | App profiles 449/448/446/428/385/364 with paired version code and Bloks hash; Pixel 8 Pro device settings; supported capabilities; unused `LOGIN_EXPERIMENTS`                                                          |
-| [instagrapi `mixins/private.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/mixins/private.py)                                                   | `a3b7538`                               | REST headers: `X-IG-Capabilities: 3brTv10=`, app ID, `X-FB-HTTP-Engine: Tigon/MNS/TCP`, current header set                                                                                                             |
-| [instagrapi `utils/auth.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/utils/auth.py)                                                           | `a3b7538`                               | Signed bodies are sent as `signed_body=SIGNATURE.<json>` with no HMAC or key version                                                                                                                                   |
-| [instagrapi `realtime/client.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/realtime/client.py)                                                 | `a3b7538`                               | MQTT app ID `567067343352427`, client capabilities `183`, endpoint `0`, publish format `1`, stack `3`, same topics and `app_specific_info`                                                                             |
-| [instagrapi `mixins/auth.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/mixins/auth.py)                                                         | `a3b7538`                               | `login()` is CAA/Bloks first and calls legacy only on a server `CAA_LOGIN_FALLBACK`; `login_legacy()` tries CAA on `needs_upgrade`; saved app profiles are kept unless explicitly overridden                           |
-| [instagrapi CHANGELOG](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/CHANGELOG.md)                                                                             | 3.0.0–3.0.24                            | 3.0.0 (2026-09-13) made CAA the default login; 3.0.3 follows the CAA fallback instruction; 3.0.7 made 448 default; 3.0.20 made 449 default                                                                             |
-| [instagrapi PR #2812](https://github.com/subzeroid/instagrapi/pull/2812)                                                                                                                               | `1ba80a1`, merged 2026-09-19            | 448.0.0.0.20 / 1065560286 / `0bc46a03…` "captured and verified live on this profile (login, reads and publishes)" by the maintainer                                                                                    |
-| [instagrapi PR #2855](https://github.com/subzeroid/instagrapi/pull/2855)                                                                                                                               | `52346dd`, merged 2026-10-04            | 449.0.0.52.84 / 1079242191 / `799db3e3…` from "the User-Agent build and API Bloks version checked against the current Android app"; "**Current native 449 login has not been observed.**"                              |
-| [instagrapi PR #2853](https://github.com/subzeroid/instagrapi/pull/2853) and maintainer comment                                                                                                        | closed 2026-10-06                       | The 449 manifest `versionCode` 385511871 and bundled Bloks asset `a5285a65…` differ from the runtime UA build and API Bloks version; the maintainer rejected the manifest/bundled values                               |
-| [instagrapi PR #2792](https://github.com/subzeroid/instagrapi/pull/2792), [#2480](https://github.com/subzeroid/instagrapi/pull/2480), [#2864](https://github.com/subzeroid/instagrapi/pull/2864)       | `6f2bd23`, `cec4c02`, docs              | `needs_upgrade` handled through CAA; physical Pixel 8 Pro hardware profile; the UA must change together with an app selection                                                                                          |
-| Issues [#2773](https://github.com/subzeroid/instagrapi/issues/2773), [#2791](https://github.com/subzeroid/instagrapi/issues/2791), [#2807](https://github.com/subzeroid/instagrapi/issues/2807) (open) | 2026-08-20 to 2026-09-29                | Legacy `accounts/login/` returns `error_type: needs_upgrade` for some accounts/IPs; a maintainer ten-account check on the 448 default (2026-09-20): nine fresh logins, one HTTP 429; account-specific failures persist |
-| [aiograpi `config.py`](https://github.com/subzeroid/aiograpi/blob/bf0e9090c2f16bb8137ee92f42875b1ebc277646/aiograpi/config.py)                                                                         | 2.0.20, `bf0e909`                       | Identical profile catalog. Same maintainer, so **not independent** corroboration                                                                                                                                       |
-| [HushGram README](https://github.com/sherifrahim/HushGram/blob/166f17a3e06e318fd170532308f0a8098716cf10/README.md)                                                                                     | `166f17a`                               | Secondary: 449.0.0.52.84 arm64 build 385511871; current stable 450.0.0.50.77, arm64 builds 385611395–385611438; Android 9+                                                                                             |
-| [APKMirror Instagram listings](https://www.apkmirror.com/apk/instagram/instagram-instagram/)                                                                                                           | search-index snippets                   | Secondary: 293–450 builds listed as Android 9.0+; release pages refused automated retrieval (HTTP 403), so no listing was read directly                                                                                |
-| [Google factory images, husky](https://developers.google.com/android/images#husky)                                                                                                                     | page retrieved 2026-10-13               | Official: Pixel 8 Pro codename `husky`; Android 14 builds `UD1A.230803.022` to `AP2A.240905.003` (Sep 2024, final global Android 14); Android 15 starts at `AP3A.241005.015`                                           |
-| [Google Pixel tech specs](https://support.google.com/pixelphone/answer/7158570)                                                                                                                        | page retrieved 2026-10-13               | Official: Pixel 8 Pro 1344 × 2992 at 489 PPI, Google Tensor G3                                                                                                                                                         |
-| npm registry: `instagram-private-api`, `instagram_mqtt`                                                                                                                                                | 1.46.1 (2024-03-07), 1.2.3 (2024-04-23) | The installed Node dependencies are unmaintained since 2024 and are not current protocol evidence                                                                                                                      |
+| Source                                                                                                                                                                                                    | Version / commit                        | What it supports                                                                                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [instagrapi `config.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/config.py)                                                                      | 3.0.24, `a3b7538` (2026-10-13)          | App profiles 449/448/446/428/385/364 with paired version code and Bloks hash; Pixel 8 Pro device settings; supported capabilities; unused `LOGIN_EXPERIMENTS`                                                                                                               |
+| [instagrapi `mixins/private.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/mixins/private.py)                                                      | `a3b7538`                               | REST headers: `X-IG-Capabilities: 3brTv10=`, app ID, `X-FB-HTTP-Engine: Tigon/MNS/TCP`, current header set                                                                                                                                                                  |
+| [instagrapi `utils/auth.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/utils/auth.py)                                                              | `a3b7538`                               | Signed bodies are sent as `signed_body=SIGNATURE.<json>` with no HMAC or key version                                                                                                                                                                                        |
+| [instagrapi `realtime/client.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/realtime/client.py)                                                    | `a3b7538`                               | MQTT app ID `567067343352427`, client capabilities `183`, endpoint `0`, publish format `1`, stack `3`, same topics and `app_specific_info`                                                                                                                                  |
+| [instagrapi `mixins/auth.py`](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/instagrapi/mixins/auth.py)                                                            | `a3b7538`                               | `login()` is CAA/Bloks first and calls legacy only on a server `CAA_LOGIN_FALLBACK`; `login_legacy()` tries CAA on `needs_upgrade`; saved app profiles are kept unless explicitly overridden                                                                                |
+| [instagrapi CHANGELOG](https://github.com/subzeroid/instagrapi/blob/a3b7538b1a230861cd4f43e75694fbf00950aea8/CHANGELOG.md)                                                                                | 3.0.0–3.0.24                            | 3.0.0 (2026-09-13) made CAA the default login; 3.0.3 follows the CAA fallback instruction; 3.0.7 made 448 default; 3.0.20 made 449 default                                                                                                                                  |
+| [instagrapi PR #2812](https://github.com/subzeroid/instagrapi/pull/2812)                                                                                                                                  | `1ba80a1`, merged 2026-09-19            | 448.0.0.0.20 / 1065560286 / `0bc46a03…` "captured and verified live on this profile (login, reads and publishes)" by the maintainer                                                                                                                                         |
+| [instagrapi PR #2855](https://github.com/subzeroid/instagrapi/pull/2855)                                                                                                                                  | `52346dd`, merged 2026-10-04            | 449.0.0.52.84 / 1079242191 / `799db3e3…` from "the User-Agent build and API Bloks version checked against the current Android app"; "**Current native 449 login has not been observed.**"                                                                                   |
+| [instagrapi PR #2853](https://github.com/subzeroid/instagrapi/pull/2853) and maintainer comment                                                                                                           | closed 2026-10-06                       | The 449 manifest `versionCode` 385511871 and bundled Bloks asset `a5285a65…` differ from the runtime UA build and API Bloks version; the maintainer rejected the manifest/bundled values                                                                                    |
+| [instagrapi PR #2792](https://github.com/subzeroid/instagrapi/pull/2792), [#2480](https://github.com/subzeroid/instagrapi/pull/2480), [#2864](https://github.com/subzeroid/instagrapi/pull/2864)          | `6f2bd23`, `cec4c02`, docs              | `needs_upgrade` handled through CAA; physical Pixel 8 Pro hardware profile; the UA must change together with an app selection                                                                                                                                               |
+| Issues [#2773](https://github.com/subzeroid/instagrapi/issues/2773), [#2791](https://github.com/subzeroid/instagrapi/issues/2791), [#2807](https://github.com/subzeroid/instagrapi/issues/2807) (open)    | 2026-08-20 to 2026-09-29                | Legacy `accounts/login/` returns `error_type: needs_upgrade` for some accounts/IPs; a maintainer ten-account check on the 448 default (2026-09-20): nine fresh logins, one HTTP 429; account-specific failures persist                                                      |
+| [#2807 report](https://github.com/subzeroid/instagrapi/issues/2807#issuecomment-5899212834) and [maintainer trace](https://github.com/subzeroid/instagrapi/issues/2807#issuecomment-5908091033)           | 2026-09-29/30, instagrapi 3.0.15        | On the 448 default, a **fresh client without saved settings**: CAA returned HTTP 200 without a session → `CAA_LOGIN_FALLBACK` → legacy `accounts/login/` → `needs_upgrade` → CAA retry → no session. The maintainer notes `needs_upgrade` alone does not identify the cause |
+| [#2807 448 diagnostics](https://github.com/subzeroid/instagrapi/issues/2807#issuecomment-5910241139) and [new-device report](https://github.com/subzeroid/instagrapi/issues/2807#issuecomment-5909503988) | 2026-09-30                              | Mixed: one 448 diagnostic with saved settings logged in, a later one failed with `needs_upgrade`; another user attributes failures to an unanswered new-device approval, with re-logins on known devices succeeding                                                         |
+| [#2807 independent TypeScript client](https://github.com/subzeroid/instagrapi/issues/2807#issuecomment-5923254326)                                                                                        | 2026-10-01                              | Unverified third-party report: 8/8 TOTP logins through CAA with `449.0.0.48.84` / `1078743311` and **the same Bloks hash `799db3e3…`**; legacy `accounts/login/` returns `needs_upgrade` by design for CAA accounts; UA version and Bloks version must be a matched pair    |
+| [#2852](https://github.com/subzeroid/instagrapi/issues/2852) and [#2807 maintainer note](https://github.com/subzeroid/instagrapi/issues/2807#issuecomment-6086190932)                                     | 2026-10-06 to 2026-10-11                | On 3.0.20 (449 default) fresh logins hit HTTP 429 at credential submission. 3.0.21 required TLS 1.3 in the HTTP/2 transport; the maintainer reports "normal high-level fresh login was verified", the default "remains 449", and a user confirmed the fix                   |
+| [aiograpi `config.py`](https://github.com/subzeroid/aiograpi/blob/bf0e9090c2f16bb8137ee92f42875b1ebc277646/aiograpi/config.py)                                                                            | 2.0.20, `bf0e909`                       | Identical profile catalog. Same maintainer, so **not independent** corroboration                                                                                                                                                                                            |
+| [HushGram README](https://github.com/sherifrahim/HushGram/blob/166f17a3e06e318fd170532308f0a8098716cf10/README.md)                                                                                        | `166f17a`                               | Secondary: 449.0.0.52.84 arm64 build 385511871; current stable 450.0.0.50.77, arm64 builds 385611395–385611438; Android 9+                                                                                                                                                  |
+| [APKMirror Instagram listings](https://www.apkmirror.com/apk/instagram/instagram-instagram/)                                                                                                              | search-index snippets                   | Secondary: 293–450 builds listed as Android 9.0+; release pages refused automated retrieval (HTTP 403), so no listing was read directly                                                                                                                                     |
+| [Google factory images, husky](https://developers.google.com/android/images#husky)                                                                                                                        | page retrieved 2026-10-13               | Official: Pixel 8 Pro codename `husky`; Android 14 builds `UD1A.230803.022` to `AP2A.240905.003` (Sep 2024, final global Android 14); Android 15 starts at `AP3A.241005.015`                                                                                                |
+| [Google Pixel tech specs](https://support.google.com/pixelphone/answer/7158570)                                                                                                                           | page retrieved 2026-10-13               | Official: Pixel 8 Pro 1344 × 2992 at 489 PPI, Google Tensor G3                                                                                                                                                                                                              |
+| npm registry: `instagram-private-api`, `instagram_mqtt`                                                                                                                                                   | 1.46.1 (2024-03-07), 1.2.3 (2024-04-23) | The installed Node dependencies are unmaintained since 2024 and are not current protocol evidence                                                                                                                                                                           |
 
 An official APK was not downloaded or decompiled. Its manifest values are known
 from secondary indexes, and PR #2853 shows they are not the values the running
@@ -81,51 +100,77 @@ which is outside this offline milestone.
 
 ## 3. Candidate profiles
 
-| Criterion                | Inherited 416                         | **A: instagrapi 448 (selected)**                  | B: instagrapi 449 (maintained default) | C: official 450.0.0.50.77 APK                |
-| ------------------------ | ------------------------------------- | ------------------------------------------------- | -------------------------------------- | -------------------------------------------- |
-| Version / code / Bloks   | 416.0.0.47.66 / 382206157 / `388ece…` | 448.0.0.0.20 / 1065560286 / `0bc46a…`             | 449.0.0.52.84 / 1079242191 / `799db3…` | 450.0.0.50.77 / manifest 3856114xx / unknown |
-| Internal consistency     | Mixed sources; no                     | Captured together from one running app            | Captured together from one running app | Runtime build and Bloks unknown              |
-| Source quality           | Patched dependency                    | Maintainer capture, PR #2812                      | Maintainer check, PR #2855             | Secondary indexes for manifest codes only    |
-| Known login              | Fails upstream (`needs_upgrade`)      | Maintainer-reported live login; 9/10 fresh logins | Not observed (stated in PR)            | None                                         |
-| Bloks pairing            | Unverified                            | Paired                                            | Paired                                 | Missing                                      |
-| Device plausibility      | Android 6–8; below Android 9 minimum  | Pixel 8 Pro, Android 14                           | Same device                            | Would need a device choice                   |
-| REST/MQTT applicability  | Yes                                   | Yes (constants only)                              | Yes (constants only)                   | Not constructible                            |
-| Session migration safety | Baseline                              | App-level change only                             | App-level change only                  | Unknown fields                               |
-| Newest                   | No                                    | No                                                | Newer                                  | Newest stable                                |
+| Criterion                | Inherited 416                         | 448 (historical reference)                                   | **449 (selected)**                                     | Official 450.0.0.50.77 APK                   |
+| ------------------------ | ------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------- |
+| Version / code / Bloks   | 416.0.0.47.66 / 382206157 / `388ece…` | 448.0.0.0.20 / 1065560286 / `0bc46a…`                        | 449.0.0.52.84 / 1079242191 / `799db3…`                 | 450.0.0.50.77 / manifest 3856114xx / unknown |
+| Internal consistency     | Mixed sources; no                     | Captured together from one running app                       | Captured together from the current running app         | Runtime build and Bloks unknown              |
+| Currency                 | Obsolete                              | Superseded upstream on 2026-10-04                            | Maintained-client default since 2026-10-04             | Newest stable, not constructible             |
+| Source quality           | Patched dependency                    | Maintainer capture, PR #2812                                 | Maintainer capture, PR #2855                           | Secondary indexes for manifest codes only    |
+| Login evidence           | Fails (`needs_upgrade`)               | Reported success 2026-09-19; fresh-client failure 2026-09-29 | Upstream reports after 3.0.21 (section 3a); none by us | None                                         |
+| Bloks pairing            | Unverified                            | Paired                                                       | Paired; same hash seen with a sibling 449 build        | Missing                                      |
+| Device plausibility      | Android 6–8; below Android 9 minimum  | Pixel 8 Pro, Android 14                                      | Same device                                            | Would need a device choice                   |
+| REST/MQTT applicability  | Yes                                   | Yes (constants only)                                         | Yes (constants only)                                   | Not constructible                            |
+| Session migration safety | Baseline                              | App-level change only                                        | App-level change only                                  | Unknown fields                               |
 
-**C was rejected** because the version code and Bloks hash the app sends cannot be
-reconstructed offline; the APK manifest values are known to differ from them.
-Inventing them would violate the selection rule. **B was a close second**: it is
-the maintained default and equally coherent, but its PR explicitly states that no
-native 449 login has been observed. **A was selected** because its three release
-fields and device were captured together and it is the only modern profile with
-maintainer-reported live login. It is one release older than B; newer is not a
-selection criterion. Switching to B later is a one-object, reviewed profile update.
+**M2 selects current coherence, not proven login.** 449 is the current coherent
+maintained-client default, captured from current Android behavior, with the
+same device template. 448 is kept because its history is evidence, not because
+it is current. The 450 APK was rejected because its runtime version code and
+Bloks hash cannot be reconstructed offline; manifest values are known to differ
+from what the app sends, and inventing them would violate the selection rule.
+Newness alone is not a criterion: 449 wins on currency plus coherence.
+
+## 3a. Evidence chronology
+
+| Date       | Event                                                                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| M1         | 416 inherited: patched version over app-222-era Bloks/signing/experiments; upstream 2.0.1 login fails with `needs_upgrade` |
+| 2026-09-19 | 448 captured; the maintainer reports live login, reads and publishes (PR #2812)                                            |
+| 2026-09-20 | Maintainer ten-account check on the 448 default: nine fresh logins, one HTTP 429                                           |
+| 2026-09-29 | Fresh client on the exact 448 tuple: CAA → fallback → legacy `needs_upgrade` → CAA retry → no session (#2807)              |
+| 2026-09-30 | Mixed 448 diagnostics: one saved-settings login succeeds, a later one fails; new-device approval named as one cause        |
+| 2026-10-01 | Independent TypeScript client reports CAA logins with a 449 build and Bloks `799db3e3…` (unverified)                       |
+| 2026-10-04 | 449 captured and made the maintained default; PR #2855: "Current native 449 login has not been observed"                   |
+| 2026-10-06 | 449 fresh logins hit HTTP 429 at credential submission under 3.0.20                                                        |
+| 2026-10-09 | 3.0.21 (TLS 1.3 transport): maintainer reports fresh login verified; default remains 449                                   |
+| 2026-10-13 | First M2 selection (448) superseded by 449 in this repository                                                              |
+
+**Why historical 448 success no longer justifies the default.** Its successes
+predate a reproduced fresh-client failure on the exact tuple, and upstream moved
+on. A past success says the tuple was once accepted, not that it is current. The
+`needs_upgrade` result itself is not decisive, since the maintainer reproduced it
+with a deliberately invalid identity. Even so, it removes 448's only advantage
+over the newer, equally coherent 449.
+
+**What the 449 reports do and do not show.** Upstream fresh logins after 3.0.21
+used CAA and a TLS 1.3 HTTP/2 transport; Instagram-CLI has neither yet. They
+support the tuple's currency. They do not validate this client, so 449 stays
+**live-unverified** here.
 
 ## 4. Selected profile
 
-| Field            | Value                                                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Profile ID       | `android-448.0.0.0.20-pixel-8-pro`                                                                                       |
-| App version      | `448.0.0.0.20`                                                                                                           |
-| Version code     | `1065560286` (runtime UA build number, not the manifest `versionCode`)                                                   |
-| Bloks version    | `0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432`                                                       |
-| Minimum Android  | SDK 28 (Android 9)                                                                                                       |
-| App ID           | `567067343352427` (REST and active MQTT)                                                                                 |
-| Capabilities     | `3brTv10=`                                                                                                               |
-| Android / SDK    | 14 / 34                                                                                                                  |
-| Manufacturer     | `Google/google`                                                                                                          |
-| Model / device   | `Pixel 8 Pro` / `husky`                                                                                                  |
-| CPU field        | `husky`                                                                                                                  |
-| Resolution / DPI | `1344x2992` / `480dpi`                                                                                                   |
-| ABI              | Not represented in the REST UA or MQTT payload; unknown and not sent                                                     |
-| OS build         | `AP2A.240905.003` (used only by the inactive web UA)                                                                     |
-| App UA           | `Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)` |
-| Supported caps   | SDK list `119.0`–`142.0`, face tracker `14`, `ETC2_COMPRESSION`, gyroscope                                               |
-| MQTT client info | capabilities `183`, endpoint `0`, publish format `1`, stack `3`, `cookie_auth`                                           |
+| Field            | Value                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Profile ID       | `android-449.0.0.52.84-pixel-8-pro`                                                                                       |
+| App version      | `449.0.0.52.84`                                                                                                           |
+| Version code     | `1079242191` (runtime UA build number, not the manifest `versionCode` 385511871)                                          |
+| Bloks version    | `799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b`                                                        |
+| Minimum Android  | SDK 28 (Android 9)                                                                                                        |
+| App ID           | `567067343352427` (REST and active MQTT)                                                                                  |
+| Capabilities     | `3brTv10=`                                                                                                                |
+| Android / SDK    | 14 / 34                                                                                                                   |
+| Manufacturer     | `Google/google`                                                                                                           |
+| Model / device   | `Pixel 8 Pro` / `husky`                                                                                                   |
+| CPU field        | `husky`                                                                                                                   |
+| Resolution / DPI | `1344x2992` / `480dpi`                                                                                                    |
+| ABI              | Not represented in the REST UA or MQTT payload; unknown and not sent                                                      |
+| OS build         | `AP2A.240905.003` (used only by the inactive web UA)                                                                      |
+| App UA           | `Instagram 449.0.0.52.84 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1079242191)` |
+| Supported caps   | SDK list `119.0`–`142.0`, face tracker `14`, `ETC2_COMPRESSION`, gyroscope                                                |
+| MQTT client info | capabilities `183`, endpoint `0`, publish format `1`, stack `3`, `cookie_auth`                                            |
 
-The UA is byte-identical to the one instagrapi PR #2812 published for this
-profile. `ApplicationRelease` holds version, code and Bloks hash as one frozen
+The UA is byte-identical to instagrapi's documented 449 default (its
+`config.py` header and current-profile regression test). `ApplicationRelease` holds version, code and Bloks hash as one frozen
 object; `defineCompatibilityProfile()` rejects any profile whose triple is not a
 declared release, or whose device is below the release's minimum SDK.
 
@@ -133,9 +178,9 @@ declared release, or whose device is below the release's minimum SDK.
 
 | Field                           | Classification                                          | Notes                                                                                                                      |
 | ------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| App version                     | Maintained-client evidence                              | Not found on APK indexes; the `X.0.0.0.N` pattern suggests a pre-release channel build (inference)                         |
-| Version code                    | Maintained-client evidence                              | Runtime UA build; official manifest code unknown                                                                           |
-| Bloks version                   | Maintained-client evidence                              | Captured with the version above                                                                                            |
+| App version                     | Maintained-client evidence                              | `449.0.0.52.84` also appears on APK indexes as a stable release (secondary corroboration)                                  |
+| Version code                    | Maintained-client evidence                              | Runtime UA build; indexed arm64 manifest code is 385511871, which the app does not send (PR #2853)                         |
+| Bloks version                   | Maintained-client evidence                              | API Bloks version captured with the version above; an independent client reports the same hash with build 449.0.0.48.84    |
 | Minimum Android SDK 28          | Strong inference                                        | Every indexed 293–450 build lists Android 9.0+; not verified from an APK                                                   |
 | Android 14 / SDK 34             | Official mapping, maintained-client pairing             | API 34 is Android 14; Pixel 8 Pro shipped Android 14                                                                       |
 | Model `Pixel 8 Pro`, `husky`    | Official                                                | Google factory images                                                                                                      |
@@ -145,8 +190,8 @@ declared release, or whose device is below the release's minimum SDK.
 | CPU field `husky`               | Maintained-client evidence                              | Tensor devices report the codename as hardware (inference)                                                                 |
 | OS build `AP2A.240905.003`      | Official                                                | Final global Android 14 build for husky; only used by the inactive web UA                                                  |
 | App ID                          | Inherited stable constant                               | Same in instagrapi REST and MQTT                                                                                           |
-| `X-IG-Capabilities`             | Inherited stable constant                               | instagrapi still sends `3brTv10=`; not tied to 448 specifically                                                            |
-| Supported capabilities          | Maintained-client evidence                              | instagrapi's list (last edited 2022), in use during the reported 448 logins; not generation-verified                       |
+| `X-IG-Capabilities`             | Inherited stable constant                               | instagrapi still sends `3brTv10=`; not tied to 449 specifically                                                            |
+| Supported capabilities          | Maintained-client evidence                              | instagrapi's list (last edited 2022), sent with both its 448 and 449 profiles; not generation-verified                     |
 | MQTT client/endpoint caps       | Maintained-client evidence, inherited stable constant   | Identical in instagrapi realtime                                                                                           |
 | Signature version/key           | Inherited but unverified; likely obsolete               | instagrapi sends `SIGNATURE.` without HMAC or key version. Not changed: the dependency's request builder computes the HMAC |
 | Experiments / login experiments | Inherited but unverified; obsolete in maintained client | instagrapi no longer sends experiments in QE sync. Only our guest QE (missing encryption key) sends them                   |
@@ -213,11 +258,11 @@ that the raw dependency deserializer is still unsafe.
 ## 8. Existing-account behavior
 
 A saved session keeps its identifiers and its **existing hardware**, including an
-M1 Android 6–8.1 device. Only application fields change, to 448. No session file
+M1 Android 6–8.1 device. Only application fields change, to 449. No session file
 is rewritten until the next normal save, which stores the same identity.
 
 That continuity has a known structural problem: indexed Instagram 4xx builds
-require Android 9, so `448 + Android 7.1.1` is a combination no real phone can
+require Android 9, so `449 + Android 7.1.1` is a combination no real phone can
 produce. The evidence is secondary, so M2 does not migrate silently. Instead the
 report flags it (`App minimum: SDK 28 (not met by this device)`), and
 `matchesSelectedProfile.device` is false for retained hardware.
@@ -232,9 +277,10 @@ and be decided in M3 alongside live authentication.
 
 A username with no saved session gets the template and username-derived
 identifiers. After explicit logout (which deletes the session), the next login is
-a new device. Tests assert that 100 synthetic new accounts never receive a 416
-version, the old Bloks hash, an SDK 23–27 device, or a legacy build, and that the
-identifiers are unique per username and stable across profile changes.
+a new device. Tests assert that 100 synthetic new accounts receive 449 and never
+a 416 or 448 version, either old Bloks hash, an SDK 23–27 device, or a legacy
+build, and that the identifiers are unique per username and stable across
+profile changes. The 416 and 448 references remain reproducible as fixtures.
 
 ## 10. Unresolved constants and remaining inconsistencies
 
@@ -250,8 +296,9 @@ identifiers are unique per username and stable across profile changes.
    and the bandwidth/zero-rating headers. Transport differs too (HTTP/1.1 versus
    HTTP/2 with TLS 1.3).
 4. **Experiments.** The 814/88-entry lists come from the dependency's app-222 era.
-5. **Release provenance.** 448.0.0.0.20 is probably a pre-release channel build;
-   its official manifest code and minimum SDK are not APK-verified.
+5. **Release provenance.** 449.0.0.52.84 is an indexed stable release, but its
+   runtime version code, Bloks hash and minimum SDK are not APK-verified. The
+   historical 448.0.0.0.20 is probably a pre-release channel build.
 6. **Device age.** Android 14 with a September 2024 build is plausible, but not
    the Pixel 8 Pro's current OS. This keeps the maintained-client pairing.
 7. **Existing hardware.** Retained legacy devices are below the app's minimum SDK
@@ -267,17 +314,21 @@ Evidence: instagrapi 3.0.0 (2026-09-13) made CAA/Bloks login the default
 (`b.i.instagram.com/api/v1/bloks/async_action/com.bloks.www.bloks.caa.login.async.send_login_request/`).
 Legacy `accounts/login/` is used only when Instagram returns
 `CAA_LOGIN_FALLBACK`. Issues #2773, #2791 and #2807 show legacy login returning
-`needs_upgrade` for some accounts/IPs even on current profiles, while the reported
-448 successes came through the CAA-first flow. The selected profile is therefore
-expected to be used with **CAA/Bloks login**, with legacy only as a
-server-directed fallback.
+`needs_upgrade` even on current profiles, including the exact 448 tuple on a fresh
+client. An independent client reports that legacy login returns `needs_upgrade` by
+design for CAA accounts. Every reported success (448 in September, 449 after
+3.0.21) came through the CAA-first flow, and the 449 reports also depended on a
+TLS 1.3 HTTP/2 transport. The selected profile is therefore expected to be used
+with **CAA/Bloks login**, with legacy only as a server-directed fallback.
 
 **Recommendation for M3: B, implement CAA before live testing.** A legacy probe
 (A or C) would spend a real login attempt on a path known to be gated, and each
 failed attempt adds account risk (verification emails, 429s, checkpoints). The
-profile's Bloks pairing exists precisely so CAA can use it. M3 should also decide
-signing and the header set (items 2–3) and the existing-account device migration,
-then run one controlled, explicitly authorized live attempt.
+profile's Bloks pairing exists precisely so CAA can use it. M3 must also decide
+signing, the header set and HTTP transport (items 2–3), the CAA payload and
+context (instagrapi declined unproven payload changes in PR #2853), and the
+existing-account device migration, then run one controlled, explicitly
+authorized live attempt.
 
 ## 12. Procedure for future profile updates
 
@@ -285,7 +336,9 @@ then run one controlled, explicitly authorized live attempt.
    version captured together, with source, commit and retrieval date. Do not
    combine values from different releases or from APK manifests/bundled assets.
 2. Add a frozen `ApplicationRelease` to `declaredReleases`; never edit one field
-   of an existing release.
+   of an existing release. Keep the previous selection as a named historical
+   profile with its `evidence`, as 448 is kept, and set the new profile's
+   `liveLogin` to `unverified` until this project observes it.
 3. Choose one device template whose SDK meets `minimumAndroidSdk`; verify model,
    codename, resolution and build against vendor documentation.
 4. Update the independent literals in `profile.test.ts`, `rest.test.ts`,
@@ -340,7 +393,7 @@ Sanitized capture for a new account (identifiers redacted):
 
 | Route               | Path                       | Identity                                                |
 | ------------------- | -------------------------- | ------------------------------------------------------- |
-| Login               | `/api/v1/accounts/login/`  | 448 UA, app ID, `0bc46a03…`, `3brTv10=`, signed v4      |
+| Login               | `/api/v1/accounts/login/`  | 449 UA, app ID, `799db3e3…`, `3brTv10=`, signed v4      |
 | Launcher sync       | `/api/v1/launcher/sync/`   | Same identity, signed v4                                |
 | Experiment sync     | `/api/v1/qe/sync/`         | Same identity, signed v4                                |
 | Reels cold start    | `/api/v1/feed/reels_tray/` | Same identity, unsigned; supported caps `119.0,…,142.0` |
@@ -354,7 +407,7 @@ same state, plus the profile's app ID and client capabilities via public
 overrides. It uses the **phone ID** as `deviceId` and its first 20 characters as
 `clientIdentifier`. Iris sends `snapshot_app_version` from the same state.
 
-Sanitized capture: app ID `567067343352427`, app version `448.0.0.0.20`, the 448
+Sanitized capture: app ID `567067343352427`, app version `449.0.0.52.84`, the 449
 UA above, `X-IG-Capabilities: 3brTv10=`, client capabilities `183`, endpoint
 `0`, publish format `1`, stack `3`, topics `88, 135, 149, 150, 133, 146`.
 Everclear query IDs and topic IDs stay in the library's protocol builders.
@@ -388,18 +441,21 @@ fields only, and `formatCompatibilityReport()` renders them:
 ```text
 Instagram-CLI compatibility profile
 
-Profile:            android-448.0.0.0.20-pixel-8-pro
+Profile:            android-449.0.0.52.84-pixel-8-pro
 Profile status:     selected
-Profile source:     instagrapi 3.0.24 (a3b7538) app profile 448.0.0.0.20 and device settings; build from Google factory images
-App version:        448.0.0.0.20
-Version code:       1065560286
-Bloks version:      0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432
+Profile source:     instagrapi 3.0.24 (a3b7538) default app profile 449.0.0.52.84 and device settings; build from Google factory images
+Evidence:           captured current Android profile (maintained-client default)
+Offline:            verified-coherent
+Live login:         unverified
+App version:        449.0.0.52.84
+Version code:       1079242191
+Bloks version:      799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b
 Android:            14 (SDK 34)
 Device:             Google/google Pixel 8 Pro (husky; husky; 480dpi; 1344x2992; build AP2A.240905.003)
 App minimum:        SDK 28 (met)
 REST app ID:        567067343352427
 REST capabilities:  3brTv10=
-MQTT app version:   448.0.0.0.20
+MQTT app version:   449.0.0.52.84
 MQTT app ID:        567067343352427
 Matches profile:    yes
 Live validation:    not performed

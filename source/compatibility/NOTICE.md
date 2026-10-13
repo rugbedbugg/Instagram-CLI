@@ -31,8 +31,9 @@ SOFTWARE.
 
 ## instagrapi
 
-The selected 448.0.0.0.20 release values, the Pixel 8 Pro device settings and
-the selected supported-capabilities list in `profile.ts` are taken from
+The 449.0.0.52.84 (selected) and 448.0.0.0.20 (historical) release values, the
+Pixel 8 Pro device settings and the supported-capabilities list in `profile.ts`
+are taken from
 [instagrapi](https://github.com/subzeroid/instagrapi) 3.0.24 (commit `a3b7538`).
 They remain covered by its MIT notice below. The OS build and display values are
 from Google's published Pixel documentation.
