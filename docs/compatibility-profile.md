@@ -17,7 +17,7 @@ profile authoritative after session restore.
 | What an existing saved account keeps | Its device, build and identifiers; only application fields change   |
 | Who decides application fields       | `currentCompatibilityProfile`, applied after every session restore  |
 | Reference profiles                   | `legacyInheritedProfile` (416), `android448HistoricalProfile` (448) |
-| Recommended next step (M3)           | Implement CAA/Bloks login before any live test (see section 11)     |
+| Next step                            | Re-scoped after M2: no CAA or attestation emulation (section 11)    |
 
 Source: [`profile.ts`](../source/compatibility/profile.ts),
 [`legacy-profile.ts`](../source/compatibility/legacy-profile.ts),
@@ -329,6 +329,14 @@ signing, the header set and HTTP transport (items 2–3), the CAA payload and
 context (instagrapi declined unproven payload changes in PR #2853), and the
 existing-account device migration, then run one controlled, explicitly
 authorized live attempt.
+
+**Status after M3a (re-scoped).** CAA as instagrapi implements it depends on
+device-integrity and attestation signals. Instagram-CLI does not reproduce
+those signals, so CAA/Bloks login was not implemented. M3a instead made the
+existing flows typed and the saved sessions durable; see
+[authentication.md](authentication.md). Authentication compatibility remains
+unresolved, and the evidence above still applies: the legacy password flow may
+be refused with `needs_upgrade`.
 
 ## 12. Procedure for future profile updates
 

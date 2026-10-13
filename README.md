@@ -60,7 +60,8 @@ The inherited Python client remains under [`instagram-py/`](instagram-py/README.
 - [x] Establish the Instagram-CLI downstream identity and command compatibility.
 - [x] Own the [Instagram compatibility profile](docs/compatibility-profile.md) and verify REST/MQTT fingerprints offline.
 - [x] Establish a [coherent modern profile](docs/compatibility-profile.md#4-selected-profile) with an explicit existing-session policy (offline; not live-validated).
-- [ ] Repair authentication and separately revalidate live flows.
+- [x] Make authentication failures typed and saved sessions durable: failed logins never overwrite a session, and writes are atomic ([details](docs/authentication.md); offline, not live-validated).
+- [ ] Repair authentication compatibility (still unresolved) and separately revalidate live flows.
 - [ ] Prepare a downstream release after compatibility validation and registry ownership checks.
 
 See [issues](https://github.com/rugbedbugg/Instagram-CLI/issues) and the [maintenance model](docs/maintenance.md).

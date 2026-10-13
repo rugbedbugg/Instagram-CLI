@@ -96,6 +96,7 @@ Keep ESM imports with explicit `.js` extensions. Use `initializeLogger()` and co
 - [Local-file safety](docs/local-file-safety.md)
 - [Compatibility profile ownership, offline harness, and session boundaries](docs/compatibility-profile.md)
 - [Logging](docs/logging.md)
+- [Authentication outcomes and session integrity](docs/authentication.md)
 - [Login implementation](docs/login.md) and [API debugging](docs/api-debugging.md), which describe implementation rather than current live compatibility
 
 ## Legacy Python client
