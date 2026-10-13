@@ -1,8 +1,8 @@
 diff --git a/node_modules/instagram-private-api/dist/core/request.js b/node_modules/instagram-private-api/dist/core/request.js
-index f68f184..c6005e0 100644
+index f68f184..75b509b 100644
 --- a/node_modules/instagram-private-api/dist/core/request.js
 +++ b/node_modules/instagram-private-api/dist/core/request.js
-@@ -39,7 +39,6 @@ class Request {
+@@ -39,11 +39,11 @@ class Request {
              simple: false,
              transform: Request.requestTransform,
              jar: this.client.state.cookieJar,
@@ -10,6 +10,32 @@ index f68f184..c6005e0 100644
              gzip: true,
              headers: this.getDefaultHeaders(),
              method: 'GET',
+         }, this.defaults);
++        Request.assertHostMatchesUrl(options);
+         Request.requestDebug(`Requesting ${options.method} ${options.url || options.uri || '[could not find url]'}`);
+         const response = await this.faultTolerantRequest(options);
+         this.updateState(response);
+@@ -55,6 +55,20 @@ class Request {
+         process.nextTick(() => this.error$.next(error));
+         throw error;
+     }
++    // Node takes the TLS server name, and the name the certificate must match,
++    // from the Host header, but connects to the URL's host. Refuse a request
++    // where they differ, so only the URL's host can be authenticated.
++    static assertHostMatchesUrl(options) {
++        const headers = options.headers || {};
++        const normalize = host => String(host).trim().toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
++        const target = normalize(new URL(String(options.url || options.uri || ''), options.baseUrl).hostname);
++        // Every spelling counts: merged options can carry both Host and host.
++        for (const name of Object.keys(headers)) {
++            if (name.toLowerCase() === 'host' && normalize(headers[name]) !== target) {
++                throw new errors_1.IgClientError('The Host header does not name the request URL\'s host; the request was not sent.');
++            }
++        }
++    }
+     updateState(response) {
+         const { 'x-ig-set-www-claim': wwwClaim, 'ig-set-authorization': auth, 'ig-set-password-encryption-key-id': pwKeyId, 'ig-set-password-encryption-pub-key': pwPubKey, } = response.headers;
+         if (typeof wwwClaim === 'string') {
 diff --git a/node_modules/instagram-private-api/dist/entities/direct-thread.entity.d.ts b/node_modules/instagram-private-api/dist/entities/direct-thread.entity.d.ts
 index 93eb781..2cadf27 100644
 --- a/node_modules/instagram-private-api/dist/entities/direct-thread.entity.d.ts

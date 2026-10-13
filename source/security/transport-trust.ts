@@ -5,12 +5,15 @@ import process from 'node:process';
 /**
  * The dependency module whose `Request.send()` builds every REST request's
  * options. Its audited patch removes the insecure `strictSSL: false` default,
- * leaving Node's certificate and hostname verification in force.
+ * leaving Node's certificate and hostname verification in force, and refuses a
+ * request whose Host header names another host than its URL, because Node
+ * verifies the certificate against the Host header's name.
  */
 export const restTransportModule = 'instagram-private-api/dist/core/request.js';
 
 const insecureTransportDefault =
 	/\bstrictSSL\s*:\s*false\b|\brejectUnauthorized\s*:\s*false\b/;
+const hostBindingCheck = /\bassertHostMatchesUrl\b/;
 
 export type InsecureTransportReason = 'environment' | 'unpatched-dependency';
 
@@ -58,10 +61,10 @@ export function assertTransportTrust(inputs: TransportTrustInputs = {}): void {
 	}
 
 	const source = (inputs.transportSource ?? readInstalledTransport)();
-	if (insecureTransportDefault.test(source)) {
+	if (insecureTransportDefault.test(source) || !hostBindingCheck.test(source)) {
 		throw new InsecureTransportError(
 			'unpatched-dependency',
-			'The installed instagram-private-api still disables TLS certificate verification because its patch was not applied. Reinstall dependencies with install scripts enabled (`npm ci`).',
+			'The installed instagram-private-api is missing its TLS verification patch, so certificates would not be verified for the request host. Reinstall dependencies with install scripts enabled (`npm ci`).',
 		);
 	}
 
