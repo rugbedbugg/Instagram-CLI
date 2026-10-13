@@ -356,8 +356,9 @@ export class InstagramClient extends EventEmitter {
 
 	/**
 	 * Restore the saved session, then validate it with the post-login flow's
-	 * first request. A network failure leaves it restored but unverified; the
-	 * saved file is only rewritten once Instagram has accepted the session.
+	 * first request. A network failure leaves it restored but unverified, and
+	 * this client then never writes it; the saved file is only rewritten once
+	 * Instagram has accepted the session.
 	 */
 	public async loginBySession(options?: {
 		initializeRealtime: boolean;
@@ -399,9 +400,11 @@ export class InstagramClient extends EventEmitter {
 				this.loginFlowStates.postLoginDone = true;
 			}
 
+			// An unverified session is never written: no later response may
+			// replace the last saved state until Instagram has accepted it.
 			await this.postLoginSetup(this.username, {
 				initializeRealtime: sessionOptions.initializeRealtime,
-				saveNow: validation === 'validated',
+				persist: validation === 'validated',
 			});
 			return validation === 'validated'
 				? {kind: 'session-validated', username: this.username}
@@ -1270,7 +1273,7 @@ export class InstagramClient extends EventEmitter {
 
 		const persisted = await this.postLoginSetup(username, {
 			initializeRealtime: options.initializeRealtime,
-			saveNow: true,
+			persist: true,
 		});
 		return {kind: 'authenticated', username, via: options.via, persisted};
 	}
@@ -1457,7 +1460,7 @@ export class InstagramClient extends EventEmitter {
 		username: string,
 		options: {
 			initializeRealtime?: boolean;
-			saveNow: boolean;
+			persist: boolean;
 		},
 	): Promise<boolean> {
 		const originalUsername = username;
@@ -1467,9 +1470,12 @@ export class InstagramClient extends EventEmitter {
 			throw new Error('No session manager for an established session');
 		}
 
-		// Only an established session turns persistence on.
-		this.persistence.activate(this.sessionManager);
-		const persisted = options.saveNow ? await this.persistence.save() : true;
+		// Only an established, accepted session turns persistence on.
+		let persisted = false;
+		if (options.persist) {
+			this.persistence.activate(this.sessionManager);
+			persisted = await this.persistence.save();
+		}
 
 		// Use the original username to maintain consistency with session file paths
 		// Instagram API may return username in different casing (usually lowercase)

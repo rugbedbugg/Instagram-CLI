@@ -9,8 +9,10 @@ import {
 	endObservers,
 	loginAccepted,
 	loginRejected,
+	ok,
 	postLogin,
 	preLogin,
+	savedBytes,
 	seedPreviousSession,
 	sessionPath,
 	settle,
@@ -173,6 +175,52 @@ test.serial(
 
 		t.deepEqual(server.unexpected, []);
 		t.is(await fs.readFile(sessionPath(username), 'utf8'), before);
+	},
+);
+
+test.serial(
+	'later responses never rewrite a restored session that is still unverified',
+	async t => {
+		const username = 'overwrite-restore-unverified';
+		const before = await seedPreviousSession(username);
+		const client = new InstagramClient(username);
+		const ig = client.getInstagramClient();
+		const baseline = endObservers(client);
+		const server = new ScriptedInstagram(ig).expect(
+			step('POST', '/api/v1/feed/reels_tray/', {networkError: 'ENETUNREACH'}),
+			step(
+				'POST',
+				'/api/v1/feed/timeline/',
+				ok(
+					{feed_items: []},
+					{
+						'set-cookie': [
+							'csrftoken=synthetic-csrf-rotated; Domain=.instagram.com; Path=/',
+						],
+					},
+				),
+			),
+			step('POST', '/api/v1/feed/timeline/', {
+				status: 500,
+				body: {status: 'fail', message: 'synthetic'},
+			}),
+		);
+
+		const result = await client.loginBySession({initializeRealtime: false});
+		await settle();
+		t.like(result, {kind: 'session-restored-unverified'});
+		t.is(endObservers(client), baseline);
+
+		// Unrelated requests complete, one of them changing client state.
+		await ig.feed.timeline('pull_to_refresh').request();
+		await t.throwsAsync(ig.feed.timeline('pull_to_refresh').request());
+		await settle();
+		t.is(await savedBytes(username), before);
+
+		await client.shutdown();
+		t.deepEqual(server.unexpected, []);
+		t.is(server.pending, 0);
+		t.is(await savedBytes(username), before);
 	},
 );
 
