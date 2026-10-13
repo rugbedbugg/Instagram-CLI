@@ -2,209 +2,94 @@
 
 ## Overview
 
-All errors, warnings, and important messages in the Instagram-CLI are logged to files instead of being written to console. This is necessary because the CLI controls stdout/stdin for the terminal UI.
+Instagram-CLI writes errors, warnings and diagnostics to log files rather than the console, because the terminal UI owns stdout and stdin.
 
-The logging system also **automatically captures all API network requests** made by the `instagram-private-api` library by integrating with the `debug` library, providing comprehensive visibility into both application logic and Instagram API interactions.
+Logs are **safe diagnostics**: they record what happened (endpoint path, method, HTTP status, error class and code, outcome kind, protocol stage) and never the credentials or private payloads involved. Redaction is unconditional. No debug flag, `DEBUG` pattern or verbose mode turns it off. The design is described in [transport-security.md](transport-security.md#3-credential-confidentiality-in-diagnostics).
 
-## Log Location
+Logs never contain:
 
-All logs are stored in: `~/.instagram-cli/logs/`
+- passwords or encrypted password submissions;
+- verification codes, 2FA identifiers or challenge context and nonces;
+- session cookies, bearer tokens or `Authorization` headers;
+- request options, complete requests or responses, or server response bodies;
+- realtime (MQTT/FBNS) message or packet payloads.
 
-Each session creates a new log file with the naming pattern: `session-YYYY-MM-DD_HH-MM-SS.log`
+## Log location
 
-Example log file: `~/.instagram-cli/logs/session-2025-10-18_14-30-45.log`
+Logs are stored in `~/.instagram-cli/logs/`, or `$INSTAGRAM_CLI_HOME/logs/` when that is set. Each session creates `session-YYYY-MM-DD_HH-MM-SS.log`.
 
-## Log File Format
+New log files are created owner-only (`0600`), and a logs directory the logger creates is `0700`. Existing files and directories are not changed.
 
-Each log entry contains:
+## Log file format
 
-- **Timestamp**: ISO format (e.g., `2025-10-18T14:30:45`)
-- **Log Level**: `ERROR`, `WARN`, `INFO`, or `DEBUG`
-- **Context**: The module/function where the log originated (e.g., `[InstagramClient]`, `[ig-api]`)
-- **Message**: Human-readable log message
-- **Stack trace** (for errors only): Full error stack trace for debugging
-
-### Log Contexts
-
-- **Application logs**: Context names like `InstagramClient`, `SessionManager`, `LoginCommand`, etc.
-- **API logs**: Context `[ig-api]` for all network requests made by `instagram-private-api`
-
-Example log file content:
+Each entry has an ISO timestamp, a level (`ERROR`, `WARN`, `INFO` or `DEBUG`), a context such as `[InstagramClient]`, and the message. An error entry is followed by its allowlisted description: class, code, HTTP status and redacted message, up to three causes, then stack frames.
 
 ```log
-2025-10-18T14:30:45.123Z INFO [Logger]: Logger initialized
-2025-10-18T14:30:45.234Z INFO [useInstagramClient]: Initializing Instagram client
-2025-10-18T14:30:45.345Z DEBUG [ig-api]: ig:http POST https://i.instagram.com/api/v1/direct_v2/threads/
-2025-10-18T14:30:45.456Z ERROR [InstagramClient]: Failed to fetch threads
-Error: Network timeout
-    at InstagramClient.getThreads
-    ...
-
-2025-10-18T14:30:50.456Z WARN [InstagramClient]: MQTT sendMessage failed
-2025-10-18T14:30:55.789Z INFO [LoginCommand]: Login successful for user: example_user
+2026-10-13T14:30:45.123Z INFO [Logger]: Logger initialized
+2026-10-13T14:30:45.345Z DEBUG [Dependency]: ig:request: Requesting POST /api/v1/accounts/login/
+2026-10-13T14:30:45.401Z DEBUG [Dependency]: ig:request: Request POST /api/v1/accounts/login/ failed (response body withheld)
+2026-10-13T14:30:45.402Z WARN [InstagramClient]: Login ended with invalid-credentials: IgLoginBadPasswordError (HTTP 400)
+2026-10-13T14:30:46.010Z DEBUG [Dependency]: ig:mqtt:realtime:message: Received on /ig_message_sync (payload withheld)
+2026-10-13T14:30:46.020Z DEBUG [Dependency]: mqtt:client:packet: message withheld (212 chars)
+2026-10-13T14:30:47.456Z ERROR [InstagramClient]: Failed to fetch threads
+RequestError: Error: socket hang up
+Caused by: Error [ECONNRESET]: socket hang up
+    at InstagramClient.getThreads (…)
 ```
 
-## Instagram API Logging
+## Dependency debug output
 
-The logging system automatically integrates with the `debug` library used by `instagram-private-api` to capture all network requests and API interactions.
+`instagram-private-api`, `instagram_mqtt` and `mqtts` log through the `debug` library. Instagram-CLI routes all of it into the log file, never stderr, from the moment the logger module loads:
 
-### How It Works
+1. `ig:*` is enabled by default. `DEBUG` replaces that pattern, for example `DEBUG=ig:request insta-cli chat`, and `DEBUG=` with an empty value keeps the default.
+2. Each line is matched against reviewed message shapes for its namespace (`source/security/debug-diagnostics.ts`). Request lines keep the method and a sanitized path, with no origin, query or challenge nonce. Lines that embed bodies, 2FA details or payloads keep only their fixed wording.
+3. Any line without a reviewed shape is logged as `<namespace>: message withheld (N chars)`. That includes every namespace a broader `DEBUG` pattern enables, so verbose runs still show that something happened without its contents.
+4. The result also passes the central text redaction.
 
-1. By default, all API logs (namespace `ig:*`) are enabled automatically
-2. API logs are redirected from stderr to the log file
-3. You can still use the `DEBUG` environment variable to customize which namespaces are logged
+To diagnose a new dependency message, add a reviewed rule for its exact shape, with a test, rather than logging it raw.
 
-### Customizing API Logging
-
-To enable only specific debug namespaces:
-
-```bash
-DEBUG=ig:http insta-cli chat
-```
-
-To disable API logging entirely:
-
-```bash
-DEBUG= insta-cli chat
-```
-
-To enable all debug output including other libraries:
-
-```bash
-DEBUG=* insta-cli chat
-```
-
-**Note**: By default, if `DEBUG` is not set, the logger enables `ig:*` automatically to provide comprehensive API logging.
-
-## Using the Logger in Code
-
-### Basic Usage
-
-Import the logger and create a contextual instance:
+## Using the logger in code
 
 ```typescript
 import {createContextualLogger} from './utils/logger.js';
 
-// In a class
 private readonly logger = createContextualLogger('InstagramClient');
 
-// In a function
-const logger = createContextualLogger('myFunction');
-```
-
-### Logging Errors
-
-```typescript
 try {
 	await client.sendMessage(threadId, text);
 } catch (error) {
 	logger.error('Failed to send message', error);
 }
-```
 
-The logger automatically captures the error message and stack trace.
-
-### Logging Warnings
-
-```typescript
 logger.warn('MQTT connection lost, using fallback API');
-```
-
-### Logging Info Messages
-
-```typescript
-logger.info('User logged in successfully');
-```
-
-### Logging Debug Messages
-
-```typescript
+logger.info('User switched account');
 logger.debug('Processing message from thread 12345');
 ```
 
-## Logger Initialization
+- Pass errors themselves to `logger.error()`. The logger reads only allowlisted fields: it never serializes `options`, `response`, `request`, bodies or headers.
+- A non-error value passed to `logger.error()` is reduced by key first: credential members become `[redacted]`, and request or response members become `[omitted]`.
+- Every message also passes `redactText()`, which removes tokens, cookies, credential members, query strings and challenge nonces. That is a last line of defense. Do not interpolate payloads, responses, headers, form data or realtime messages into log messages; log their kind, size or status instead.
+- For authentication failures, log the outcome kind with `describeAuthenticationError()`, which gives class and HTTP status only.
 
-The logger is automatically initialized at application startup in both:
+## Logger initialization
 
-- `cli.ts` - Main CLI entry point
-- `cli.mock.ts` - Mock/testing entry point
+`cli.ts` and `cli.mock.ts` call `initializeLogger()` at startup. Until then, entries are kept only in memory and dependency debug output is already filtered.
 
-Manual initialization (if needed):
+`await getLogger().flush()` resolves once every entry logged so far has been written. Writes are appended in order.
 
-```typescript
-import {initializeLogger} from './utils/logger.js';
-
-await initializeLogger();
-```
-
-## Accessing Logs
-
-View the latest session log:
+## Accessing logs
 
 ```bash
 ls -lt ~/.instagram-cli/logs/ | head -1
-cat ~/.instagram-cli/logs/session-*.log
-```
-
-Monitor logs in real-time:
-
-```bash
 tail -f ~/.instagram-cli/logs/session-*.log
-```
-
-Search for specific errors:
-
-```bash
 grep "ERROR" ~/.instagram-cli/logs/session-*.log
-grep "Failed to fetch" ~/.instagram-cli/logs/session-*.log
 ```
 
-Check logs from a specific date:
-
-```bash
-ls ~/.instagram-cli/logs/session-2025-10-18_*.log
-```
-
-## Best Practices
-
-1. **Always provide context**: Use `createContextualLogger()` with the class/function name
-2. **Include error objects**: Pass the full error object to `logger.error()` for complete stack traces
-3. **Use appropriate levels**:
-   - `error`: Failed operations that impact functionality
-   - `warn`: Fallbacks, retries, or degraded functionality
-   - `info`: Important state changes or user actions
-   - `debug`: Detailed execution flow (for debugging)
-4. **Review logs regularly**: Check logs when debugging issues or investigating unexpected behavior
-5. **API logging**: The `ig-api` context logs are automatically enabled and provide detailed network request information
-
-## Example
-
-Proper error logging:
-
-```typescript
-export class MyService {
-	private readonly logger = createContextualLogger('MyService');
-
-	async performAction() {
-		try {
-			await this.riskyOperation();
-			this.logger.info('Action completed successfully');
-		} catch (error) {
-			this.logger.error('Action failed', error);
-			throw error;
-		}
-	}
-}
-```
+Logs are designed to be safe to share for troubleshooting. Still review a log before sending it, since it contains usernames, thread IDs and request paths.
 
 ## Cleanup
 
-To remove old log files (logs are per-session, so you can safely delete them):
-
 ```bash
-# Delete all logs older than 7 days
 find ~/.instagram-cli/logs -name "session-*.log" -mtime +7 -delete
-
-# Delete all logs
-rm ~/.instagram-cli/logs/session-*.log
+insta-cli cleanup logs
 ```

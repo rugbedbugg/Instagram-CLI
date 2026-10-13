@@ -94,6 +94,7 @@ Each returns an `AuthenticationOutcome`; none throws for an authentication resul
 - **IgLoginRequiredError** → `session-expired`
 - **HTTP 429 / spam** → `rate-limited`
 - **IgNetworkError** → `network-error` (or `incompatible-response` for an unparseable body)
+- **Refused TLS certificate** → `untrusted-connection` (`certificate`, `hostname` or `handshake`); never treated as offline
 
 Nothing is retried automatically. See [authentication.md](authentication.md#3-typed-outcomes) for the full table.
 
@@ -111,6 +112,7 @@ Added debug logs for non-standard login scenarios:
 - 2FA requirement detection
 - Challenge requirement detection
 - Login failures with the outcome kind, error class and HTTP status (never response bodies)
+- Everything else passes the [safe-diagnostics policy](logging.md): no credentials, codes, cookies, tokens or payloads
 - Session login failures
 
 Logs are written to `~/.instagram-cli/logs/session-{timestamp}.log`

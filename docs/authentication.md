@@ -9,7 +9,8 @@
 
 Related: [Login workflow](login.md) (UI sequence),
 [Compatibility profile](compatibility-profile.md) (client identity and session
-precedence).
+precedence), [Transport trust and credential confidentiality](transport-security.md)
+(TLS verification, safe diagnostics).
 
 ## 1. Scope
 
@@ -73,6 +74,7 @@ on `kind`:
 | `rate-limited`                | HTTP 429, `spam`, or "Please wait a few minutes"                                                                                              | stop              |
 | `session-expired`             | `login_required` or `user_has_logged_out`                                                                                                     | enter credentials |
 | `network-error`               | The transport failed before a response                                                                                                        | stop              |
+| `untrusted-connection`        | TLS refused the peer: `certificate`, `hostname` or `handshake` (never treated as offline)                                                     | stop              |
 | `unsupported-challenge`       | A challenge step this CLI does not implement (`step` when known)                                                                              | stop              |
 | `incompatible-response`       | A response that did not establish a session: `missing-session`, `missing-user`, `user-mismatch`, `malformed-response`, `malformed-two-factor` | enter credentials |
 | `account-restricted`          | `sentry_block` or `inactive user`                                                                                                             | stop              |
@@ -194,6 +196,37 @@ The format is unchanged: the same `session.ts.json` path under
 saved file, under the precedence rules in
 [compatibility-profile.md](compatibility-profile.md).
 
+### Configuration file
+
+`ConfigManager` saves `config.ts.yaml` with the same writer and queue:
+
+1. `set()` applies the change to a copy and serializes it to YAML first. A
+   value that cannot be serialized leaves both the setting and the file as they
+   were.
+2. Saves run through the per-path queue in call order, each writing the
+   snapshot taken when it was requested. The newest state always lands last,
+   and an older snapshot cannot overwrite a newer one. Reloads (`initialize()`)
+   queue behind pending saves, so they never read stale settings.
+3. Each save writes an owner-only temporary file beside the config, flushes it
+   and renames it over the file. A failed write or rename removes the temporary
+   file and keeps the previous config. The failure is logged, and the setting
+   stays in memory for the running process.
+4. `ConfigManager.getInstance()` is the shared instance. Separate managers
+   (`ConfigManager.createIsolated()`) for the same file still share its write
+   queue, but each holds its own in-memory settings, so the last one to save
+   wins.
+
+The YAML structure, keys, defaults and paths are unchanged, and user settings
+are preserved across reloads. A config left `0644` by an older version becomes
+`0600` on its next save; a new data directory is created `0700`.
+
+**Platform notes.** On POSIX file systems, `rename` within one directory is
+atomic. On Windows, Node replaces the target with `MoveFileEx`, which is not
+guaranteed atomic in every case, and file modes are not enforced. The
+directory flush that makes a rename durable after power loss is best effort and
+unavailable on some platforms. Ordering covers only this process; there is no
+cross-process lock.
+
 ## 6. Error reporting and redaction
 
 - User-facing text comes only from `describeAuthenticationOutcome()`, which
@@ -201,6 +234,8 @@ saved file, under the precedence rules in
 - Authentication failures are logged as the outcome kind plus
   `describeAuthenticationError()`: the error class and HTTP status, never the
   message, body or request options.
+- Every other log entry passes the central redaction and the dependency debug
+  allowlist described in [logging.md](logging.md). They apply in every mode.
 - Challenge steps are logged and shown only when they are plain identifiers
   (`[a-z_]{1,64}`).
 - Session files contain cookies by design. They never contain passwords, codes
@@ -227,62 +262,46 @@ saved file, under the precedence rules in
   and never waits or retries.
 - **Logout is local.** It deletes the saved file and does not call Instagram.
 
-## 8. Separately discovered defects (not changed here)
+## 8. Separately discovered defects
 
-1. **TLS certificate verification is disabled for every REST request.** This is
-   the first M3b task, and no live request may be made until it is fixed.
-   - **Call site:** `Request.send()` in
-     `node_modules/instagram-private-api/dist/core/request.js:42` (1.46.1) builds
-     its options with
-     `defaultsDeep(userOptions, {…, strictSSL: false, …}, this.defaults)`.
-   - **Effect:** `request` turns `strictSSL: false` into
-     `rejectUnauthorized: false` (`request/request.js:254` and `:606`), and the
-     HTTPS proxy tunnel receives the same setting (`request/lib/tunnel.js:84`).
-     An offline probe through a recording transport saw
-     `rejectUnauthorized: false` on the request.
-   - **Scope:** every repository call goes through `Request.send()`: login,
-     2FA, challenge, feeds, direct messages and uploads. Not affected: MQTT
-     (`mqtts` `TlsTransport` calls `tls.connect` with Node's default
-     verification, and Instagram-CLI passes no TLS options), Instagram-CLI's own
-     `fetch()` downloads, and the unused `MediaEntity.oembed()`.
-   - **No safe override from Instagram-CLI's code:** `defaultsDeep` lets the
-     earlier source win, so `ig.request.defaults.strictSSL` and
-     `.rejectUnauthorized` are ignored (confirmed by the probe). Only
-     `userOptions` would win, and the repositories build those internally.
-     Injecting them would mean wrapping `send()` for every call.
-   - **Smallest fix:** delete the `strictSSL: false` entry with a new hunk in the
-     existing `patches/instagram-private-api+1.46.1.patch`. Node's default
-     certificate and hostname verification then applies. No transport is
-     replaced. Pair it with an offline harness test asserting that no request,
-     including one through a proxy, reaches the transport with
-     `rejectUnauthorized: false`.
-   - **Offline impact:** none. Tests replace the transport and never negotiate
-     TLS.
-2. **Debug logging captures API bodies.** The logger enables `ig:*` by default
-   and writes dependency debug output to the log file. That output includes
-   failed response bodies and the 2FA `two_factor_info`. AGENTS.md asks for that
-   redirection to stay in place, so it is documented rather than changed.
-3. **`IgNetworkError` copies the request options,** including the encrypted
-   password form and the `Authorization` header. Logs record only error stacks,
-   and the auth paths log only class and status, but any code that serializes
-   such an error would expose them.
-4. **`ConfigManager` writes `config.ts.yaml` non-atomically.**
+All six were found during M3a. M3b resolved defects 1–4 and 6; defect 5 was
+resolved in the M3a review.
+
+1. **TLS certificate verification was disabled for every REST request**, by
+   `strictSSL: false` in `Request.send()`. Resolved: the dependency patch
+   removes it and binds verification to the request URL's host, and a
+   fail-closed guard refuses unpatched installs and
+   `NODE_TLS_REJECT_UNAUTHORIZED=0`. A refused certificate gives
+   `untrusted-connection`. See [transport-security.md](transport-security.md).
+2. **Debug logging captured API bodies and 2FA details.** Resolved: dependency
+   debug output passes a reviewed allowlist in every mode, and everything else
+   is withheld ([logging.md](logging.md)).
+3. **`IgNetworkError` copied the request options**, including the encrypted
+   password form, the cookie jar and the `Authorization` header. Resolved: the
+   patch drops `options` and `response`, and the logger never serializes
+   either from any error.
+4. **`ConfigManager` wrote `config.ts.yaml` non-atomically.** Resolved: see
+   [Configuration file](#configuration-file).
 5. **A hard crash mid-save** can leave an owner-only temporary file beside the
    session. It never replaces the session, and the next delete for that account
    (`logout` or `cleanupSessions()`) removes it. Before the M3a review,
    `cleanupSessions()` deleted files outside the write queue: a write already in
    progress could recreate a session after cleanup reported success, and cleanup
    left temporary files behind. Both are fixed and covered by tests.
-6. **A network failure while submitting a challenge code surfaces as
-   `failed/unexpected-error`,** not `network-error`. The dependency's
-   `sendSecurityCode()` reads `error.response.statusCode` from an
-   `IgNetworkError`, which has no response. Nothing is written.
+6. **A network failure while submitting a challenge code surfaced as
+   `failed/unexpected-error`.** Resolved: the patch makes `sendSecurityCode()`
+   check the HTTP status only when a response exists, so the failure is
+   classified as `network-error`. A wrong code is still
+   `verification-code-rejected`.
 
 ## 9. Requirements for future live validation
 
 Live validation needs explicit, separate authorization. Before it:
 
-1. Resolve defect 1 (TLS verification) without disabling verification anywhere.
+1. Keep TLS verification on (defect 1, resolved in M3b). Never set
+   `NODE_TLS_REJECT_UNAUTHORIZED=0` or install with `--ignore-scripts`; the
+   client refuses both. Trust any intercepting proxy only through
+   `NODE_EXTRA_CA_CERTS`, and only for a proxy you control.
 2. Use a dedicated test account. Never use a personal or shared account's
    credentials or saved session.
 3. Keep `INSTAGRAM_CLI_HOME` pointed at a fresh directory, and keep a copy of
@@ -301,12 +320,15 @@ Live validation needs explicit, separate authorization. Before it:
 
 ## 10. Tests
 
-| Concern                                                       | Test file                              |
-| ------------------------------------------------------------- | -------------------------------------- |
-| Original overwrite defect, restore safety, subscription count | `tests/auth/session-overwrite.test.ts` |
-| Classification, messages, coordinator rules                   | `tests/auth/outcomes.test.ts`          |
-| End-to-end scenarios, cookies without evidence                | `tests/auth/lifecycle.test.ts`         |
-| Atomic writes, interruption, concurrency, cleanup ordering    | `tests/session.test.ts`                |
+| Concern                                                       | Test file                                                  |
+| ------------------------------------------------------------- | ---------------------------------------------------------- |
+| Original overwrite defect, restore safety, subscription count | `tests/auth/session-overwrite.test.ts`                     |
+| Classification, messages, coordinator rules                   | `tests/auth/outcomes.test.ts`                              |
+| End-to-end scenarios, cookies without evidence                | `tests/auth/lifecycle.test.ts`                             |
+| Atomic writes, interruption, concurrency, cleanup ordering    | `tests/session.test.ts`                                    |
+| Atomic, ordered configuration writes                          | `tests/persistence/config-atomic.test.ts`                  |
+| Challenge-code network failures and wrong codes               | `tests/auth/challenge-errors.test.ts`                      |
+| TLS trust, secret-free logs                                   | see [transport-security.md](transport-security.md#4-tests) |
 
 `tests/auth/_offline-instagram.ts` replaces only the socket layer beneath the
 `request` library, so the dependency's signing, cookie jar, parsing, events and

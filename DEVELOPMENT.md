@@ -74,6 +74,8 @@ mise exec node@22 -- npx --no-install tsc -p tests/compatibility/tsconfig.json -
 mise exec node@22 -- npx --no-install ava 'tests/compatibility/*.test.ts'
 ```
 
+`tests/auth`, `tests/transport`, `tests/security` and `tests/persistence` have their own TypeScript projects as well (`npx --no-install tsc -p tests/<dir>/tsconfig.json --noEmit`). The TLS tests start loopback HTTPS servers and proxies with the synthetic certificates in `tests/transport/_fixtures/`, and fail on any connection outside them.
+
 For Ink tests, use `ink-testing-library`, assert on `lastFrame()`, and wait for rendered state rather than relying on fixed delays. Add coverage for keyboard input, empty states, Unicode, and any changed local-file behavior.
 
 ## Source layout
@@ -97,6 +99,7 @@ Keep ESM imports with explicit `.js` extensions. Use `initializeLogger()` and co
 - [Compatibility profile ownership, offline harness, and session boundaries](docs/compatibility-profile.md)
 - [Logging](docs/logging.md)
 - [Authentication outcomes and session integrity](docs/authentication.md)
+- [Transport trust and credential confidentiality](docs/transport-security.md)
 - [Login implementation](docs/login.md) and [API debugging](docs/api-debugging.md), which describe implementation rather than current live compatibility
 
 ## Legacy Python client

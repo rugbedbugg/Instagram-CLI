@@ -24,6 +24,7 @@ This documentation provides context for AI coding tools like VSCode, Cursor, Gem
 - Keep ESM imports with explicit `.js` extensions; mirror existing logging setup via `initializeLogger()` and `createContextualLogger`.
 - API work lives in `source/client.ts` plus helpers like `utils/message-parser.ts`; extend these surfaces rather than scattering raw API calls.
 - Client identity lives in `source/compatibility/`; use its factory, device template, session restore (`restoreCompatibilitySession`), and realtime options; never call `state.deserialize()` directly. Read `docs/compatibility-profile.md` before changing fingerprint or session precedence. Do not restore version constants in dependency patches.
+- Transport trust and diagnostics redaction live in `source/security/`. Never disable TLS verification (`strictSSL`, `rejectUnauthorized`, `NODE_TLS_REJECT_UNAUTHORIZED`), and never log credentials, request options, responses or payloads. Read `docs/transport-security.md` before changing the REST transport, dependency patches or logging.
 - Authentication lives in `source/auth/`: client auth methods return a typed `AuthenticationOutcome`, only `SessionPersistence` subscribes to request events, and `SessionManager` writes atomically. Read `docs/authentication.md` before changing login, session validation or persistence; never treat an HTTP 200 as authentication or add automatic credential retries.
 - Place stateless Ink pieces in `ui/components`, orchestration in `ui/views`, and derived state in `ui/hooks`; reuse existing visual patterns (gradients, status bars) for consistency.
 - When working with existing components and systems, first check their design description in `docs/`
@@ -60,4 +61,4 @@ This documentation provides context for AI coding tools like VSCode, Cursor, Gem
 
 - Avoid committing real credentials or session artefacts; all secrets should flow through `ConfigManager`/`SessionManager` paths.
 - Respect rate limits by using mocks for iterative UI work and keeping realtime connections (`InstagramClient.initializeRealtime`) scoped to active sessions.
-- Leave the logger initialisation and debug redirection intact to capture API diagnostics without leaking to stdout. Logs are available in `.instagram-cli/logs`, ask the user to provide them if troubleshooting is needed.
+- Keep logging to safe diagnostics: leave the logger initialisation and the debug redirection through the reviewed allowlist intact, so API diagnostics reach the log file without leaking to stdout or recording secrets. Redaction must apply in every mode; extend the allowlist with a tested rule instead of logging raw dependency output (see `docs/logging.md`). Logs are available in `.instagram-cli/logs`; ask the user to provide them if troubleshooting is needed.
