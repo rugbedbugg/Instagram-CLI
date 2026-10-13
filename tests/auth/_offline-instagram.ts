@@ -1,13 +1,18 @@
 import {Buffer} from 'node:buffer';
 import {generateKeyPairSync} from 'node:crypto';
 import {EventEmitter} from 'node:events';
+import fs from 'node:fs/promises';
 import {STATUS_CODES} from 'node:http';
+import path from 'node:path';
 import {PassThrough} from 'node:stream';
 import type {IgApiClient} from 'instagram-private-api';
+import type {InstagramClient} from '../../source/client.js';
 import {
 	createInstagramApiClient,
 	generateCompatibilityDevice,
 } from '../../source/compatibility/client.js';
+import {ConfigManager} from '../../source/config.js';
+import {SessionManager} from '../../source/session.js';
 
 /**
  * Deterministic Instagram stand-in for authentication tests. It replaces only
@@ -272,4 +277,60 @@ export async function previousSession(
 		unknown
 	>;
 	return serialized;
+}
+
+export function sessionPath(username: string): string {
+	return path.join(
+		ConfigManager.getInstance().get('advanced.usersDir'),
+		username,
+		'session.ts.json',
+	);
+}
+
+/** Save a previous session for `username` and return its exact bytes. */
+export async function seedPreviousSession(username: string): Promise<string> {
+	await new SessionManager(username).saveSession(
+		await previousSession(username),
+	);
+	return fs.readFile(sessionPath(username), 'utf8');
+}
+
+/** The saved file's bytes once every write already queued has finished. */
+export async function savedBytes(
+	username: string,
+): Promise<string | undefined> {
+	// Loads queue behind pending writes, so this is a write barrier.
+	await new SessionManager(username).loadSession();
+	try {
+		return await fs.readFile(sessionPath(username), 'utf8');
+	} catch {
+		return undefined;
+	}
+}
+
+/** Let deferred response handlers and any writes they started settle. */
+export async function settle(): Promise<void> {
+	for (let round = 0; round < 5; round++) {
+		// eslint-disable-next-line no-await-in-loop
+		await new Promise(resolve => {
+			setImmediate(resolve);
+		});
+	}
+}
+
+/** Subscribers to the dependency's response-completion stream. */
+export function endObservers(client: InstagramClient): number {
+	const {end$} = client.getInstagramClient().request as unknown as {
+		end$: {observers: unknown[]};
+	};
+	return end$.observers.length;
+}
+
+/** The JSON payload of a signed form request. */
+export function signedPayload(body: string): Record<string, unknown> {
+	const signed = new URLSearchParams(body).get('signed_body') ?? '';
+	return JSON.parse(signed.slice(signed.indexOf('.') + 1)) as Record<
+		string,
+		unknown
+	>;
 }

@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import test from 'ava';
 import {InstagramClient} from '../../source/client.js';
 import {ConfigManager} from '../../source/config.js';
@@ -7,11 +6,14 @@ import {SessionManager} from '../../source/session.js';
 import {forbidNetwork} from '../compatibility/_harness.js';
 import {
 	ScriptedInstagram,
+	endObservers,
 	loginAccepted,
 	loginRejected,
 	postLogin,
 	preLogin,
-	previousSession,
+	seedPreviousSession,
+	sessionPath,
+	settle,
 	step,
 	syntheticPassword,
 } from './_offline-instagram.js';
@@ -24,38 +26,6 @@ test.after.always(t => {
 	network.restore();
 	t.is(network.attempts, 0);
 });
-
-function sessionPath(username: string): string {
-	return path.join(
-		ConfigManager.getInstance().get('advanced.usersDir'),
-		username,
-		'session.ts.json',
-	);
-}
-
-async function seedPreviousSession(username: string): Promise<string> {
-	await new SessionManager(username).saveSession(
-		await previousSession(username),
-	);
-	return fs.readFile(sessionPath(username), 'utf8');
-}
-
-/** Let deferred response handlers and any writes they started settle. */
-async function settle(): Promise<void> {
-	for (let round = 0; round < 5; round++) {
-		// eslint-disable-next-line no-await-in-loop
-		await new Promise(resolve => {
-			setImmediate(resolve);
-		});
-	}
-}
-
-function endObservers(client: InstagramClient): number {
-	const {end$} = client.getInstagramClient().request as unknown as {
-		end$: {observers: unknown[]};
-	};
-	return end$.observers.length;
-}
 
 test.serial(
 	'a rejected password leaves the previously saved session byte-identical',
