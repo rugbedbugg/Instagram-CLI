@@ -84,6 +84,76 @@ for (const name of Object.keys(paths) as Array<keyof typeof paths>) {
 	});
 }
 
+// Independent literals for the selected profile; see profile.test.ts.
+const selectedHeaders: Record<string, string> = {
+	'user-agent':
+		'Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)',
+	'x-ig-app-id': '567067343352427',
+	'x-bloks-version-id':
+		'0bc46a03e177bfc9bc8d611918815acf248fa9c77754d807d6a5951dc9ce9432',
+	'x-ig-capabilities': '3brTv10=',
+};
+const legacyMarkers = [
+	identity.appVersion,
+	identity.appVersionCode,
+	identity.bloksVersionId,
+	'MI MAX 2',
+	identity.build,
+];
+// The selected profile declares four supported capabilities instead of six.
+const selectedKeys = (keys: string[]) =>
+	keys.filter(key => {
+		const index = /^supported_capabilities_new\[(\d+)]/.exec(key)?.[1];
+		return index === undefined || Number(index) < 4;
+	});
+
+for (const name of Object.keys(paths) as Array<keyof typeof paths>) {
+	test(`selected profile identity reaches the real ${name} request`, async t => {
+		const ig = fixtureClient();
+		const {wire, form, payload, signedJson} = await captureRest(ig, async () =>
+			paths[name](ig),
+		);
+		const expected = baseline.routes[name];
+		t.is(wire.path, expected.path);
+		t.is(wire.method, expected.method);
+		for (const [header, value] of Object.entries(baseline.headers)) {
+			t.is(
+				wire.headers[header],
+				selectedHeaders[header] ?? value,
+				`Header ${header}`,
+			);
+		}
+
+		t.deepEqual([...form.keys()].sort(), selectedKeys(expected.formKeys));
+		t.deepEqual(
+			Object.keys(payload).sort(),
+			selectedKeys(expected.payloadKeys),
+		);
+		t.is(wire.headers['x-ig-device-id'], ig.state.uuid);
+		t.is(wire.headers['x-ig-android-id'], ig.state.deviceId);
+		if (signedJson) {
+			t.is(form.get('ig_sig_key_version'), profile.signature.version);
+			t.is(
+				form.get('signed_body'),
+				`${createHmac('sha256', profile.signature.key).update(signedJson).digest('hex')}.${signedJson}`,
+			);
+		} else {
+			t.false(form.has('signed_body'));
+		}
+
+		t.is(
+			typeof payload['configs'] === 'string'
+				? hash(payload['configs'])
+				: undefined,
+			'configsSha256' in expected ? expected.configsSha256 : undefined,
+		);
+		const wireText = `${JSON.stringify(wire.headers)}${wire.body}`;
+		for (const marker of legacyMarkers) {
+			t.false(wireText.includes(marker), `No legacy ${marker}`);
+		}
+	});
+}
+
 test('login uses synthetic identity, real password encryption, and the inherited country code', async t => {
 	const ig = fixtureClient(profile, false);
 	prepareLoginEncryption(ig);

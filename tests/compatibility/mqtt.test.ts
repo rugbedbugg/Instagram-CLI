@@ -76,6 +76,76 @@ test('legacy reference MQTT connection and Thrift preserve the M1 fingerprint', 
 	t.deepEqual(inflateSync(await compressDeflate(thrift)), thrift);
 });
 
+const selectedUserAgent =
+	'Instagram 448.0.0.0.20 Android (34/14; 480dpi; 1344x2992; Google/google; Pixel 8 Pro; husky; husky; en_US; 1065560286)';
+
+test('selected profile reaches MQTT connection data and serialized Thrift', async t => {
+	const ig = fixtureClient();
+	const {data, decoded, thrift} = captureMqtt(ig);
+	t.deepEqual(data.appSpecificInfo, {
+		...identity.mqtt.appSpecificInfo,
+		app_version: '448.0.0.0.20',
+		'User-Agent': selectedUserAgent,
+	});
+	t.deepEqual(decoded.appSpecificInfo, data.appSpecificInfo);
+	t.is(data.clientInfo?.userAgent, selectedUserAgent);
+	t.is(decoded.clientInfo?.userAgent, selectedUserAgent);
+	t.is(decodedInt(decoded.clientInfo?.appId), 567_067_343_352_427n);
+	t.is(decodedInt(decoded.clientInfo?.clientCapabilities), 183n);
+	t.is(decodedInt(decoded.clientInfo?.endpointCapabilities), 0n);
+	t.is(decoded.clientInfo?.clientStack, 3);
+	t.is(decoded.clientInfo?.publishFormat, 1);
+	t.is(decoded.clientInfo?.deviceId, ig.state.phoneId);
+	t.is(decoded.clientIdentifier, ig.state.phoneId.slice(0, 20));
+	t.deepEqual(inflateSync(await compressDeflate(thrift)), thrift);
+	const serialized = Buffer.from(thrift).toString('latin1');
+	t.true(serialized.includes(selectedUserAgent));
+	for (const marker of [
+		identity.appVersion,
+		identity.appVersionCode,
+		'MI MAX 2',
+	]) {
+		t.false(serialized.includes(marker), `No legacy ${marker}`);
+	}
+});
+
+test('REST and MQTT present one identity for the selected profile', async t => {
+	const ig = fixtureClient();
+	const launcher = await captureRest(ig, async () =>
+		ig.launcher.postLoginSync(),
+	);
+	const timeline = await captureRest(ig, async () =>
+		ig.feed.timeline('cold_start_fetch').request(),
+	);
+	const {data, decoded} = captureMqtt(ig);
+	for (const {wire} of [launcher, timeline]) {
+		t.is(wire.headers['user-agent'], data.clientInfo?.userAgent);
+		t.is(wire.headers['user-agent'], data.appSpecificInfo?.['User-Agent']);
+		t.is(wire.headers['x-ig-app-id'], String(data.clientInfo?.appId));
+		t.is(
+			wire.headers['x-ig-capabilities'],
+			data.appSpecificInfo?.['X-IG-Capabilities'],
+		);
+		t.is(
+			wire.headers['accept-language'],
+			data.appSpecificInfo?.['Accept-Language'],
+		);
+		t.true(
+			wire.headers['user-agent']!.startsWith(
+				`Instagram ${data.appSpecificInfo?.app_version} Android (`,
+			),
+		);
+	}
+
+	// Device relationships: REST binds UUID/device ID, MQTT binds phone ID.
+	t.is(timeline.form.get('phone_id'), ig.state.phoneId);
+	t.is(data.clientInfo?.deviceId, ig.state.phoneId);
+	t.is(decoded.clientInfo?.deviceId, ig.state.phoneId);
+	t.is(launcher.payload['_uuid'], ig.state.uuid);
+	t.is(String(launcher.payload['_uid']), String(data.clientInfo?.userId));
+	t.is(data.password, `sessionid=${dummySession}`);
+});
+
 test('MQTT account and ephemeral identity fields have their inherited relationships', t => {
 	const ig = fixtureClient();
 	const {data, decoded} = captureMqtt(ig);
@@ -212,6 +282,23 @@ for (const [name, change] of profileChanges) {
 		t.is(ig.state.build, selected.device.build);
 	});
 }
+
+test('Iris subscription carries the selected application version', async t => {
+	const {realtime} = captureMqtt(fixtureClient());
+	let payload: Uint8Array | undefined;
+	const transport = {
+		async publish(packet: {payload: Uint8Array}) {
+			payload = packet.payload;
+		},
+	};
+	realtime.commands = new Commands(transport as unknown as MQTToTClient);
+	await realtime.irisSubscribe({seq_id: 3, snapshot_at_ms: 4});
+	t.deepEqual(JSON.parse(inflateSync(payload!).toString()), {
+		seq_id: 3,
+		snapshot_at_ms: 4,
+		snapshot_app_version: '448.0.0.0.20',
+	});
+});
 
 test('Iris subscription uses the same application version through real compression', async t => {
 	const selected = {
