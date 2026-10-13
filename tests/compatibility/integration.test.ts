@@ -27,9 +27,9 @@ test.serial(
 			ig instanceof IgApiClientExt,
 			'withRealtime must retain the configured instance',
 		);
-		t.is(ig.state.appVersion, profile.appVersion);
-		t.is(ig.state.appVersionCode, profile.appVersionCode);
-		t.is(ig.state.bloksVersionId, profile.bloksVersionId);
+		t.is(ig.state.appVersion, profile.release.appVersion);
+		t.is(ig.state.appVersionCode, profile.release.appVersionCode);
+		t.is(ig.state.bloksVersionId, profile.release.bloksVersionId);
 		generateCompatibilityDevice(ig, dummyUsername);
 		ig.state.cookieJar.setCookie(
 			'ds_user_id=123456789; Domain=.instagram.com; Path=/',

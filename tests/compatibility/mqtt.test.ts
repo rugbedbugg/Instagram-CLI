@@ -15,6 +15,7 @@ import {
 	formatDeviceString,
 	type InstagramCompatibilityProfile,
 } from '../../source/compatibility/profile.js';
+import {legacyInheritedProfile as legacy} from '../../source/compatibility/legacy-profile.js';
 import identity from './_fixtures/compatibility-baseline.json' with {type: 'json'};
 import {
 	captureMqtt,
@@ -23,6 +24,7 @@ import {
 	dummyUserId,
 	fixtureClient,
 	forbidNetwork,
+	legacyFixtureClient,
 } from './_harness.js';
 
 const network = forbidNetwork();
@@ -46,9 +48,9 @@ function decodedInt(value: unknown): bigint {
 	throw new Error('Expected a decoded Thrift i64');
 }
 
-test('real MQTT connection and serialized Thrift preserve the previous fingerprint', async t => {
-	const ig = fixtureClient();
-	const {data, decoded, thrift, realtime} = captureMqtt(ig);
+test('legacy reference MQTT connection and Thrift preserve the M1 fingerprint', async t => {
+	const ig = legacyFixtureClient();
+	const {data, decoded, thrift, realtime} = captureMqtt(ig, legacy);
 	t.is(realtime.mqtt, undefined);
 	t.is(String(data.clientInfo?.appId), identity.mqtt.appId);
 	t.is(data.clientInfo?.clientCapabilities, identity.mqtt.clientCapabilities);
@@ -139,15 +141,26 @@ test('a cached authorization session can lag a changed REST authorization header
 
 const profileChanges: Array<[string, Partial<InstagramCompatibilityProfile>]> =
 	[
-		['application version', {appVersion: '0.0.0.0.1', appVersionCode: '123'}],
+		[
+			'application release',
+			{
+				release: {
+					appVersion: '0.0.0.0.1',
+					appVersionCode: '123',
+					bloksVersionId: 'a'.repeat(64),
+				},
+			},
+		],
 		['application ID', {appId: '123456789'}],
-		['Bloks hash', {bloksVersionId: 'a'.repeat(64)}],
 		['capabilities', {capabilities: 'AA=='}],
 		[
 			'device inputs',
 			{
-				devices: [{...profile.devices[0]!, model: 'OfflineFixtureModel'}],
-				builds: ['OFFLINE_BUILD'],
+				device: {
+					...profile.device,
+					model: 'OfflineFixtureModel',
+					build: 'OFFLINE_BUILD',
+				},
 			},
 		],
 		['locale', {defaultLanguage: 'fr_FR'}],
@@ -173,10 +186,10 @@ for (const [name, change] of profileChanges) {
 		t.is(wire.headers['x-ig-app-id'], selected.appId);
 		t.is(String(data.clientInfo?.appId), selected.appId);
 		t.is(decodedInt(decoded.clientInfo?.appId), BigInt(selected.appId));
-		t.is(wire.headers['x-bloks-version-id'], selected.bloksVersionId);
+		t.is(wire.headers['x-bloks-version-id'], selected.release.bloksVersionId);
 		t.is(wire.headers['x-ig-capabilities'], selected.capabilities);
 		t.is(data.appSpecificInfo?.['X-IG-Capabilities'], selected.capabilities);
-		t.is(data.appSpecificInfo?.app_version, selected.appVersion);
+		t.is(data.appSpecificInfo?.app_version, selected.release.appVersion);
 		t.is(data.clientInfo?.userAgent, wire.headers['user-agent']);
 		t.is(data.appSpecificInfo?.['User-Agent'], wire.headers['user-agent']);
 		t.is(
@@ -185,7 +198,7 @@ for (const [name, change] of profileChanges) {
 		);
 		t.is(
 			wire.headers['user-agent'],
-			`Instagram ${selected.appVersion} Android (${ig.state.deviceString}; ${selected.defaultLanguage}; ${selected.appVersionCode})`,
+			`Instagram ${selected.release.appVersion} Android (${ig.state.deviceString}; ${selected.defaultLanguage}; ${selected.release.appVersionCode})`,
 		);
 		t.is(
 			decodedInt(decoded.clientInfo?.clientCapabilities),
@@ -195,18 +208,16 @@ for (const [name, change] of profileChanges) {
 			decodedInt(decoded.clientInfo?.endpointCapabilities),
 			BigInt(selected.realtime.endpointCapabilities),
 		);
-		t.is(
-			ig.state.deviceString,
-			change.devices
-				? formatDeviceString(change.devices[0]!)
-				: identity.deviceString,
-		);
-		t.is(ig.state.build, change.builds ? change.builds[0]! : identity.build);
+		t.is(ig.state.deviceString, formatDeviceString(selected.device));
+		t.is(ig.state.build, selected.device.build);
 	});
 }
 
 test('Iris subscription uses the same application version through real compression', async t => {
-	const selected = {...profile, appVersion: '0.0.0.0.1'};
+	const selected = {
+		...profile,
+		release: {...profile.release, appVersion: '0.0.0.0.1'},
+	};
 	const {realtime} = captureMqtt(fixtureClient(selected), selected);
 	let published:
 		| {payload: Uint8Array; topic: string; qosLevel: number}
@@ -225,7 +236,7 @@ test('Iris subscription uses the same application version through real compressi
 	t.deepEqual(JSON.parse(inflateSync(published!.payload).toString()), {
 		seq_id: 1,
 		snapshot_at_ms: 2,
-		snapshot_app_version: selected.appVersion,
+		snapshot_app_version: selected.release.appVersion,
 	});
 });
 
@@ -297,7 +308,7 @@ test('unused FBNS has separate hard-coded identity, explicitly outside the activ
 	t.deepEqual(clientInfo?.subscribeTopics, [76, 80, 231]);
 	t.true(
 		clientInfo?.userAgent?.includes(
-			`FBAV/${profile.appVersion};FBBV/${profile.appVersionCode}`,
+			`FBAV/${profile.release.appVersion};FBBV/${profile.release.appVersionCode}`,
 		),
 	);
 	t.true(clientInfo?.userAgent?.includes('FBDM/{density=4.0,'));

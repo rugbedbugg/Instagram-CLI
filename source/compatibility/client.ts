@@ -4,21 +4,23 @@ import {IgApiClientExt, type RealtimeClientInitOptions} from 'instagram_mqtt';
 import {
 	currentCompatibilityProfile,
 	formatDeviceString,
+	type ApplicationCompatibilityProfile,
 	type InstagramCompatibilityProfile,
 } from './profile.js';
 
 /** Apply application fields only; never regenerate an account's device IDs. */
 export function applyCompatibilityProfile(
 	ig: IgApiClient,
-	profile: InstagramCompatibilityProfile = currentCompatibilityProfile,
+	profile: ApplicationCompatibilityProfile = currentCompatibilityProfile,
 ): void {
+	const {release} = profile;
 	// The dependency declares historical constants as literal types even though
 	// its state intentionally supports replacement at runtime. Clone per client.
 	const constants = {
 		...ig.state.constants,
-		APP_VERSION: profile.appVersion,
-		APP_VERSION_CODE: profile.appVersionCode,
-		BLOKS_VERSION_ID: profile.bloksVersionId,
+		APP_VERSION: release.appVersion,
+		APP_VERSION_CODE: release.appVersionCode,
+		BLOKS_VERSION_ID: release.bloksVersionId,
 		FACEBOOK_ANALYTICS_APPLICATION_ID: profile.appId,
 		SIGNATURE_VERSION: profile.signature.version,
 		SIGNATURE_KEY: profile.signature.key,
@@ -42,7 +44,7 @@ export function applyCompatibilityProfile(
 }
 
 export function createInstagramApiClient(
-	profile: InstagramCompatibilityProfile = currentCompatibilityProfile,
+	profile: ApplicationCompatibilityProfile = currentCompatibilityProfile,
 ): IgApiClientExt {
 	const ig = new IgApiClientExt();
 	applyCompatibilityProfile(ig, profile);
@@ -50,26 +52,27 @@ export function createInstagramApiClient(
 	return ig;
 }
 
-/** Preserve the dependency's username seed, RNG call order, and sample order. */
+/**
+ * New-account identity: the profile's one fixed device template, plus
+ * identifiers derived deterministically from the case-sensitive username.
+ */
 export function generateCompatibilityDevice(
 	ig: IgApiClient,
 	seed: string,
 	profile: InstagramCompatibilityProfile = currentCompatibilityProfile,
 ): void {
 	const chance = new Chance(seed);
-	ig.state.deviceString = formatDeviceString(
-		chance.pickone([...profile.devices]),
-	);
+	ig.state.deviceString = formatDeviceString(profile.device);
+	ig.state.build = profile.device.build;
 	ig.state.deviceId = `android-${chance.string({pool: 'abcdef0123456789', length: 16})}`;
 	ig.state.uuid = chance.guid();
 	ig.state.phoneId = chance.guid();
 	ig.state.adid = chance.guid();
-	ig.state.build = chance.pickone([...profile.builds]);
 }
 
 /** Override the supported MQTT fields instead of patching its compiled code. */
 export function realtimeCompatibilityOptions(
-	profile: InstagramCompatibilityProfile = currentCompatibilityProfile,
+	profile: ApplicationCompatibilityProfile = currentCompatibilityProfile,
 ): Pick<RealtimeClientInitOptions, 'connectOverrides'> {
 	return {
 		connectOverrides: {

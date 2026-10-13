@@ -12,6 +12,7 @@ type VersionInfo = {
 	cliVersion: string;
 	apiVersion: string;
 	appVersion: string;
+	profileId: string;
 };
 
 export default function Version() {
@@ -33,7 +34,8 @@ export default function Version() {
 				packageName: cliPkg?.packageJson.name ?? 'unknown',
 				cliVersion: cliPkg?.packageJson.version ?? 'unknown',
 				apiVersion: apiPkg?.packageJson.version ?? 'unknown',
-				appVersion: currentCompatibilityProfile.appVersion,
+				appVersion: currentCompatibilityProfile.release.appVersion,
+				profileId: currentCompatibilityProfile.id,
 			});
 		})();
 	}, []);
@@ -51,6 +53,7 @@ export default function Version() {
 			<Box flexDirection="column" marginLeft={2}>
 				<Text>instagram-private-api: v{versionInfo.apiVersion} (patched)</Text>
 				<Text>Instagram app version: {versionInfo.appVersion}</Text>
+				<Text>Compatibility profile: {versionInfo.profileId}</Text>
 			</Box>
 		</Box>
 	);

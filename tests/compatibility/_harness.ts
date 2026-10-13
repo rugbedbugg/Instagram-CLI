@@ -12,13 +12,20 @@ import {
 	type MQTToTConnectionData,
 	type RealtimeClientInitOptions,
 } from 'instagram_mqtt';
+import Chance from 'chance';
 import {
 	createInstagramApiClient,
 	generateCompatibilityDevice,
 	realtimeCompatibilityOptions,
 } from '../../source/compatibility/client.js';
 import {
+	legacyInheritedProfile,
+	type LegacyInheritedProfile,
+} from '../../source/compatibility/legacy-profile.js';
+import {
 	currentCompatibilityProfile,
+	formatDeviceString,
+	type ApplicationCompatibilityProfile,
 	type InstagramCompatibilityProfile,
 } from '../../source/compatibility/profile.js';
 
@@ -63,6 +70,20 @@ export function forbidNetwork() {
 	};
 }
 
+function addDummyCookies(ig: IgApiClientExt): void {
+	for (const cookie of [
+		`ds_user_id=${dummyUserId}`,
+		`sessionid=${dummySession}`,
+		'csrftoken=offline-csrf',
+	]) {
+		ig.state.cookieJar.setCookie(
+			`${cookie}; Domain=.instagram.com; Path=/`,
+			'https://i.instagram.com/',
+		);
+	}
+}
+
+/** A new account under the given selectable profile. */
 export function fixtureClient(
 	profile: InstagramCompatibilityProfile = currentCompatibilityProfile,
 	withCookies = true,
@@ -71,16 +92,39 @@ export function fixtureClient(
 	generateCompatibilityDevice(ig, dummyUsername, profile);
 	ig.state.timezoneOffset = '0';
 	if (withCookies) {
-		for (const cookie of [
-			`ds_user_id=${dummyUserId}`,
-			`sessionid=${dummySession}`,
-			'csrftoken=offline-csrf',
-		]) {
-			ig.state.cookieJar.setCookie(
-				`${cookie}; Domain=.instagram.com; Path=/`,
-				'https://i.instagram.com/',
-			);
-		}
+		addDummyCookies(ig);
+	}
+
+	return ig;
+}
+
+/**
+ * Test-only replica of the M1 username-seeded pool generator. Production never
+ * generates legacy devices; old hardware only arrives from a saved session.
+ */
+export function generateLegacyDevice(
+	ig: IgApiClientExt,
+	seed: string,
+	profile: LegacyInheritedProfile = legacyInheritedProfile,
+): void {
+	const chance = new Chance(seed);
+	ig.state.deviceString = formatDeviceString(
+		chance.pickone([...profile.devices]),
+	);
+	ig.state.deviceId = `android-${chance.string({pool: 'abcdef0123456789', length: 16})}`;
+	ig.state.uuid = chance.guid();
+	ig.state.phoneId = chance.guid();
+	ig.state.adid = chance.guid();
+	ig.state.build = chance.pickone([...profile.builds]);
+}
+
+/** The complete M1 inherited identity: legacy application fields and device. */
+export function legacyFixtureClient(withCookies = true): IgApiClientExt {
+	const ig = createInstagramApiClient(legacyInheritedProfile);
+	generateLegacyDevice(ig, dummyUsername);
+	ig.state.timezoneOffset = '0';
+	if (withCookies) {
+		addDummyCookies(ig);
 	}
 
 	return ig;
@@ -176,7 +220,7 @@ type OfflineRealtime = {
 
 export function captureMqtt(
 	ig: IgApiClientExt,
-	profile: InstagramCompatibilityProfile = currentCompatibilityProfile,
+	profile: ApplicationCompatibilityProfile = currentCompatibilityProfile,
 ) {
 	const realtime = new RealtimeClient(ig, []);
 	const builder = realtime as unknown as OfflineRealtime;

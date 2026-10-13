@@ -69,13 +69,14 @@ test('normal session files retain account identity and capabilities but omit app
 	t.is(saved!['capabilitiesHeader'], profile.capabilities);
 	const updated = {
 		...profile,
-		appVersion: '0.0.0.0.1',
-		appVersionCode: '123',
-		bloksVersionId: 'b'.repeat(64),
+		release: {
+			appVersion: '0.0.0.0.1',
+			appVersionCode: '123',
+			bloksVersionId: 'b'.repeat(64),
+		},
 		capabilities: 'AA==',
 		supportedCapabilities: [{name: 'OFFLINE_ONLY', value: 1}],
-		devices: [{...profile.devices[0]!, model: 'OfflineNewDevice'}],
-		builds: ['OFFLINE_NEW_BUILD'],
+		device: {...profile.device, model: 'OfflineNewDevice', build: 'NEW'},
 	};
 	const after = createInstagramApiClient(updated);
 	generateCompatibilityDevice(after, dummyUsername, updated);
@@ -83,9 +84,9 @@ test('normal session files retain account identity and capabilities but omit app
 	await after.state.deserialize(saved);
 	t.deepEqual(accountIdentity(after), accountIdentity(before));
 	t.is(after.state.language, 'de_DE');
-	t.is(after.state.appVersion, updated.appVersion);
-	t.is(after.state.appVersionCode, updated.appVersionCode);
-	t.is(after.state.bloksVersionId, updated.bloksVersionId);
+	t.is(after.state.appVersion, updated.release.appVersion);
+	t.is(after.state.appVersionCode, updated.release.appVersionCode);
+	t.is(after.state.bloksVersionId, updated.release.bloksVersionId);
 	t.is(after.state.capabilitiesHeader, profile.capabilities);
 	t.deepEqual(
 		after.state.supportedCapabilities,
@@ -149,7 +150,7 @@ test('explicit post-deserialization application restores app fields without migr
 	applyCompatibilityProfile(ig);
 	t.deepEqual(accountIdentity(ig), identity);
 	t.is(ig.state.language, 'ja_JP');
-	t.is(ig.state.appVersion, profile.appVersion);
+	t.is(ig.state.appVersion, profile.release.appVersion);
 	t.is(ig.state.capabilitiesHeader, profile.capabilities);
 	t.is(ig.state.fbAnalyticsApplicationId, profile.appId);
 	t.true(
@@ -185,9 +186,10 @@ test('sanitized diagnostic excludes every account identifier and authentication 
 		t.false(text.includes(secret));
 	}
 
-	t.is(report.application.version, profile.appVersion);
+	t.is(report.application.version, profile.release.appVersion);
 	t.is(report.rest.appId, report.mqtt.appId);
-	t.is(report.device.model, 'MI MAX 2');
+	t.is(report.device.model, 'Pixel 8 Pro');
+	t.is(report.profile.id, profile.id);
 	t.is(report.liveValidation, 'not performed');
 });
 

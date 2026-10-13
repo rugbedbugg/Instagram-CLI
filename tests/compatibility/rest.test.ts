@@ -12,6 +12,7 @@ import {
 	fixtureClient,
 	forbidNetwork,
 	hash,
+	legacyFixtureClient,
 	prepareLoginEncryption,
 } from './_harness.js';
 
@@ -45,8 +46,8 @@ const paths = {
 };
 
 for (const name of Object.keys(paths) as Array<keyof typeof paths>) {
-	test(`real ${name} request identity and encoded form match the prior baseline`, async t => {
-		const ig = fixtureClient();
+	test(`legacy reference ${name} request identity and encoded form match the M1 baseline`, async t => {
+		const ig = legacyFixtureClient();
 		const {wire, form, payload, signedJson} = await captureRest(ig, async () =>
 			paths[name](ig),
 		);
@@ -146,7 +147,7 @@ test('cold-start reels carries every supported capability through the real form 
 	const {form} = await captureRest(ig, async () =>
 		ig.feed.reelsTray('cold_start').request(),
 	);
-	for (const [index, entry] of identity.supportedCapabilities.entries()) {
+	for (const [index, entry] of profile.supportedCapabilities.entries()) {
 		t.is(form.get(`supported_capabilities_new[${index}][name]`), entry.name);
 		t.is(
 			form.get(`supported_capabilities_new[${index}][value]`),
