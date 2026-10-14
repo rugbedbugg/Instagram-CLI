@@ -120,8 +120,14 @@ response.
 
 `source/experimental/session-bootstrap.ts` is a manual tool. It is **not** a
 Pastel command, is **not** part of the shipped `dist` bundle, and is not an
-enabled authentication method. Run it directly, with a dedicated test account's
-session id and an isolated data directory:
+enabled authentication method.
+
+**It fails closed on storage.** Before touching anything, it requires an
+explicitly configured `INSTAGRAM_CLI_HOME` and refuses to run when that variable
+is missing or empty, when it names the real `~/.instagram-cli`, or when it points
+at a directory that already holds a saved account session that a bootstrap could
+overwrite. Run it with a fresh, isolated directory and a dedicated test account's
+session id:
 
 ```bash
 INSTAGRAM_CLI_HOME="$(mktemp -d)" \
@@ -130,7 +136,8 @@ INSTAGRAM_CLI_HOME="$(mktemp -d)" \
 
 The input is hidden. It prints a sanitized outcome and exits; it makes at most
 one validation request (plus the normal post-login cold start only on success),
-never polls and never retries.
+never polls and never retries. The storage guard is covered by
+`tests/experimental/session-bootstrap-isolation.test.ts`.
 
 ## 8. Precise live-validation procedure (requires separate approval)
 
@@ -158,10 +165,11 @@ Do not run this without explicit, separate authorization. When authorized:
 
 ## 9. Tests
 
-| Concern                                                                                        | Test file                              |
-| ---------------------------------------------------------------------------------------------- | -------------------------------------- |
-| Session-id parsing, cookie application, rejection of malformed input                           | `tests/auth/session-id.test.ts`        |
-| Validation semantics, every failure branch, no-persistence-before-validation, secret-free logs | `tests/auth/session-bootstrap.test.ts` |
+| Concern                                                                                        | Test file                                                |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Session-id parsing, cookie application, rejection of malformed input                           | `tests/auth/session-id.test.ts`                          |
+| Validation semantics, every failure branch, no-persistence-before-validation, secret-free logs | `tests/auth/session-bootstrap.test.ts`                   |
+| Fail-closed isolated-storage guard for the manual entry point                                  | `tests/experimental/session-bootstrap-isolation.test.ts` |
 
 Both run offline against scripted transport responses, through the dependency's
 real request building, signing, cookie jar and error classes — not mocked

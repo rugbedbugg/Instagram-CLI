@@ -334,6 +334,39 @@ test.serial(
 );
 
 test.serial(
+	'the account is established by current_user before any persistence',
+	async t => {
+		const {server, coordinator} = scenario();
+		// current_user validates; then the post-login cold start fails. The
+		// validated authentication must stand, but it is never retried and never
+		// claims more than it established.
+		server.expect(
+			currentUser(resolvedUsername),
+			step('POST', '/api/v1/feed/reels_tray/', {networkError: 'ECONNRESET'}),
+		);
+
+		const outcome = await coordinator.bootstrapSession(browserSession, {
+			initializeRealtime: false,
+		});
+		await settle();
+
+		// Authentication was established by the authenticated current_user call.
+		t.deepEqual(outcome, {
+			kind: 'session-validated',
+			username: resolvedUsername,
+		});
+		t.is(server.requestsTo(currentUserPath).length, 1);
+		// The failed cold start is not retried, and the later timeline step,
+		// which the dependency only reaches after reels, is never attempted.
+		t.is(server.requestsTo('/api/v1/feed/reels_tray/').length, 1);
+		t.is(server.requestsTo('/api/v1/feed/timeline/').length, 0);
+		// Persistence happened because the session genuinely authenticated.
+		const saved = await savedBytes(resolvedUsername);
+		t.truthy(saved?.includes(browserSession));
+	},
+);
+
+test.serial(
 	'a failed bootstrap leaves an unrelated saved session byte-for-byte intact',
 	async t => {
 		const before = await seedPreviousSession('keeper');
