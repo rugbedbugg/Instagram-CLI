@@ -323,6 +323,7 @@ function scriptedClient(
 
 	const client: AuthenticationClient = {
 		loginBySession: respond('loginBySession'),
+		loginBySessionId: respond('loginBySessionId'),
 		login: respond('login'),
 		twoFactorLogin: respond('twoFactorLogin'),
 		startChallenge: respond('startChallenge'),

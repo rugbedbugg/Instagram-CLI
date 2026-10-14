@@ -32,6 +32,10 @@ import {
 } from './compatibility/client.js';
 import {checkSessionMaterial} from './auth/authorization.js';
 import {
+	applyImportedSession,
+	parseImportedSessionId,
+} from './auth/session-id.js';
+import {
 	challengeStepName,
 	classifyAuthenticationError,
 	classifyChallengeStep,
@@ -89,6 +93,18 @@ function extractItemId(result: BroadcastResponse): string {
 function loggedInUserOf(body: unknown): unknown {
 	return typeof body === 'object' && body !== null && 'logged_in_user' in body
 		? body.logged_in_user
+		: undefined;
+}
+
+/** The username named by an authenticated user object, when it carries one. */
+function usernameOf(user: unknown): string | undefined {
+	if (typeof user !== 'object' || user === null || !('username' in user)) {
+		return undefined;
+	}
+
+	const {username} = user as Record<string, unknown>;
+	return typeof username === 'string' && username.length > 0
+		? username
 		: undefined;
 }
 
@@ -428,6 +444,64 @@ export class InstagramClient extends EventEmitter {
 				: {kind: 'session-restored-unverified', username: this.username};
 		} catch (error) {
 			return this.authenticationFailure('Session login', error);
+		}
+	}
+
+	/**
+	 * EXPERIMENTAL: bootstrap a client from a user-authorized Instagram session
+	 * id, such as one copied from a logged-in browser, then validate it with one
+	 * authenticated private-API request.
+	 *
+	 * This is not credential login and never falls back to one. Nothing is
+	 * written until the server both accepts the session and names its account;
+	 * an existing saved session is only ever read for an explicit account, never
+	 * scanned here. A new device identity is derived from the session's own
+	 * account id, so a bootstrap presents as a new device and may face a
+	 * new-device checkpoint. See `docs/session-bootstrap.md`.
+	 */
+	public async loginBySessionId(
+		rawSessionId: string,
+		options?: {initializeRealtime: boolean},
+	): Promise<AuthenticationOutcome> {
+		const sessionOptions = options ?? {initializeRealtime: false};
+		const imported = parseImportedSessionId(rawSessionId);
+		if (!imported) {
+			return {kind: 'no-session', reason: 'unusable'};
+		}
+
+		try {
+			// A fresh attempt may never overwrite a saved session.
+			await this.persistence.deactivate({flush: true});
+
+			// No saved username is known yet, and saved sessions are never read
+			// here, so the device is seeded from the session's own account id.
+			generateCompatibilityDevice(
+				this.ig,
+				`session-bootstrap:${imported.userId}`,
+			);
+			applyImportedSession(this.ig, imported);
+
+			if (!this.sessionEstablished(undefined, {requireUser: false})) {
+				return {kind: 'no-session', reason: 'unusable'};
+			}
+
+			const validation = await this.validateImportedSession();
+			if (validation.kind !== 'validated') {
+				return validation;
+			}
+
+			// Validated: only now is it safe to persist, under the account the
+			// server named rather than one the session id merely claimed.
+			this.username = validation.username;
+			this.sessionManager = new SessionManager(validation.username);
+			this.hasInitializedReelsTray = false;
+			await this.postLoginSetup(validation.username, {
+				initializeRealtime: sessionOptions.initializeRealtime,
+				persist: true,
+			});
+			return {kind: 'session-validated', username: validation.username};
+		} catch (error) {
+			return this.authenticationFailure('Session bootstrap', error);
 		}
 	}
 
@@ -1322,6 +1396,38 @@ export class InstagramClient extends EventEmitter {
 			const outcome = this.authenticationFailure('Session validation', error);
 			// Unreachable is not expired: keep the session, unverified.
 			return outcome.kind === 'network-error' ? 'unverified' : outcome;
+		}
+	}
+
+	/**
+	 * Validate an imported session with one authenticated private-API request.
+	 * The server must both resolve `current_user` and name the account the
+	 * session material carries; a public or unauthenticated response is never
+	 * accepted. Returns the server-named username on success, or the typed
+	 * failure otherwise.
+	 */
+	private async validateImportedSession(): Promise<
+		{kind: 'validated'; username: string} | AuthenticationOutcome
+	> {
+		try {
+			const user: unknown = await this.ig.account.currentUser();
+			const material = checkSessionMaterial(this.ig, user, {requireUser: true});
+			if (!material.established) {
+				this.logger.warn(
+					`Imported session did not validate (${material.reason})`,
+				);
+				return {kind: 'incompatible-response', reason: material.reason};
+			}
+
+			const username = usernameOf(user);
+			if (!username) {
+				this.logger.warn('Imported session validated without a named account');
+				return {kind: 'incompatible-response', reason: 'malformed-response'};
+			}
+
+			return {kind: 'validated', username};
+		} catch (error) {
+			return this.authenticationFailure('Session bootstrap validation', error);
 		}
 	}
 
