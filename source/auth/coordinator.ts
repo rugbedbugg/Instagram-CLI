@@ -9,6 +9,10 @@ export type AuthenticationClient = {
 	loginBySession(options?: {
 		initializeRealtime: boolean;
 	}): Promise<AuthenticationOutcome>;
+	loginBySessionId(
+		sessionId: string,
+		options?: {initializeRealtime: boolean},
+	): Promise<AuthenticationOutcome>;
 	login(
 		username: string,
 		password: string,
@@ -58,6 +62,19 @@ export class AuthenticationCoordinator {
 		initializeRealtime: boolean;
 	}): Promise<AuthenticationOutcome> {
 		return this.run('session', async () => this.client.loginBySession(options));
+	}
+
+	/**
+	 * EXPERIMENTAL: validate a user-authorized session id, once per call. Like
+	 * every step here it runs alone and is never retried.
+	 */
+	public async bootstrapSession(
+		sessionId: string,
+		options: {initializeRealtime: boolean},
+	): Promise<AuthenticationOutcome> {
+		return this.run('session', async () =>
+			this.client.loginBySessionId(sessionId, options),
+		);
 	}
 
 	public async loginWithCredentials(
